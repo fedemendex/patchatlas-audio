@@ -474,8 +474,13 @@ describe("compileGraph", () => {
       connections: chainDoc.connections,
     });
     const frozen = deepFreeze(structuredClone(base));
+    // Catalog Modules are plain JSON; the registry holds kernel functions and
+    // cannot be structuredCloned, so purity there rests on the doc/catalog run.
+    const frozenCatalog = new Map(
+      [...moduleById].map(([id, m]) => [id, deepFreeze(structuredClone(m))]),
+    );
 
-    const result = compileGraph(frozen, moduleById, fixtureRegistry);
+    const result = compileGraph(frozen, frozenCatalog, fixtureRegistry);
 
     expect(result).toEqual(compileGraph(base, moduleById, fixtureRegistry));
     expect(frozen).toEqual(base);
