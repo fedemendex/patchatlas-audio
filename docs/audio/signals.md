@@ -23,7 +23,8 @@ the audio preview engine. All numbers are normative. Kernels must import constan
 sample = tanh(volts / AUDIO_NORM)   // AUDIO_NORM = 5
 ```
 
-Dividing by 5 maps ±5 V to ±1.0; `tanh` provides soft clipping for signals above ±5 V.
+Dividing by 5 maps ±5 V to ±1.0 at the input of the soft clipper;
+`tanh(±1)` then outputs about ±0.7616. Hotter signals approach ±1.0 smoothly.
 No other module converts volts to floats.
 
 ## Timing
