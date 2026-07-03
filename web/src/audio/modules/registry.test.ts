@@ -1,0 +1,178 @@
+// @vitest-environment node
+// (jsdom rewrites import.meta.url to an http: URL, which breaks the fs seed read;
+// this file is pure logic and needs no DOM.)
+
+import { readFileSync } from "node:fs";
+import { describe, it, expect } from "vitest";
+import { registry, isPlayable, type ModuleDSP } from "./registry";
+import { toyGainKernel, toySineKernel } from "../engine/testKernels";
+
+// --- Seed-integrity validator -----------------------------------------------
+// For every registry entry: the slug must exist in seed/generic_modules.json,
+// every inJacks/outJacks name must match a seeded jack of the right direction
+// (direction = which seed array it appears in), and every params key must match
+// a seeded control name. The real registry is empty until AP-5, so the
+// mechanism is proven below with valid and deliberately-broken fixtures.
+
+interface SeedModule {
+  slug: string;
+  inputs: { name: string }[];
+  outputs: { name: string }[];
+  controls: { name: string }[];
+}
+
+const seed = JSON.parse(
+  readFileSync(new URL("../../../../seed/generic_modules.json", import.meta.url), "utf-8"),
+) as SeedModule[];
+
+function validateEntryAgainstSeed(entry: ModuleDSP, seedModules: SeedModule[]): string[] {
+  const seeded = seedModules.find((m) => m.slug === entry.slug);
+  if (!seeded) return [`unknown slug "${entry.slug}"`];
+
+  const errors: string[] = [];
+  const inputs = new Set(seeded.inputs.map((j) => j.name));
+  const outputs = new Set(seeded.outputs.map((j) => j.name));
+  const controls = new Set(seeded.controls.map((c) => c.name));
+
+  for (const name of entry.inJacks) {
+    if (!inputs.has(name)) {
+      errors.push(
+        outputs.has(name)
+          ? `jack "${name}" on "${entry.slug}" is an output, used as an input`
+          : `unknown input jack "${name}" on "${entry.slug}"`,
+      );
+    }
+  }
+  for (const name of entry.outJacks) {
+    if (!outputs.has(name)) {
+      errors.push(
+        inputs.has(name)
+          ? `jack "${name}" on "${entry.slug}" is an input, used as an output`
+          : `unknown output jack "${name}" on "${entry.slug}"`,
+      );
+    }
+  }
+  for (const name of Object.keys(entry.params)) {
+    if (!controls.has(name)) {
+      errors.push(`unknown control "${name}" on "${entry.slug}"`);
+    }
+  }
+  return errors;
+}
+
+// Valid fixtures mirror real seeded modules, exercising both shapes the
+// interface must express: a many-jack source (oscillator) and a graph
+// terminator with no patchable outputs (audio-output).
+const validOscillatorEntry: ModuleDSP = {
+  slug: "oscillator",
+  kernel: toySineKernel,
+  inJacks: ["1V/Oct", "FM", "EFM", "Sync", "PWM"],
+  outJacks: ["Saw", "Pulse", "Tri", "Sine", "Sub"],
+  params: {
+    Tune: { min: -5, max: 5, default: 0, curve: "linear" },
+    Fine: { min: -1, max: 1, default: 0, curve: "linear" },
+    "FM Amt": { min: -1, max: 1, default: 0, curve: "linear" },
+    "EFM Amt": { min: -1, max: 1, default: 0, curve: "linear" },
+    PW: { min: 0.05, max: 0.95, default: 0.5, curve: "linear" },
+  },
+};
+
+const validAudioOutputEntry: ModuleDSP = {
+  slug: "audio-output",
+  kernel: toyGainKernel,
+  inJacks: ["L In", "R In"],
+  outJacks: [],
+  params: {
+    Level: { min: 0, max: 1, default: 0.8, curve: "linear" },
+  },
+  audioOutput: { channels: 2 },
+};
+
+describe("seed-integrity validator", () => {
+  it("loads the seed from the repo root", () => {
+    expect(seed.length).toBeGreaterThan(0);
+    expect(seed.some((m) => m.slug === "oscillator")).toBe(true);
+    expect(seed.some((m) => m.slug === "audio-output")).toBe(true);
+  });
+
+  it("accepts a valid oscillator entry", () => {
+    expect(validateEntryAgainstSeed(validOscillatorEntry, seed)).toEqual([]);
+  });
+
+  it("accepts a valid audio-output entry (no patchable outputs, DAC channels)", () => {
+    expect(validateEntryAgainstSeed(validAudioOutputEntry, seed)).toEqual([]);
+  });
+
+  it("rejects an unknown slug", () => {
+    const broken: ModuleDSP = { ...validOscillatorEntry, slug: "oscillator-9000" };
+    expect(validateEntryAgainstSeed(broken, seed)).toEqual(['unknown slug "oscillator-9000"']);
+  });
+
+  it("rejects an unknown input jack", () => {
+    const broken: ModuleDSP = { ...validOscillatorEntry, inJacks: ["1V/Oct", "Nope"] };
+    expect(validateEntryAgainstSeed(broken, seed)).toEqual([
+      'unknown input jack "Nope" on "oscillator"',
+    ]);
+  });
+
+  it("rejects a jack used with the wrong direction", () => {
+    const outAsIn: ModuleDSP = { ...validOscillatorEntry, inJacks: ["Saw"] };
+    expect(validateEntryAgainstSeed(outAsIn, seed)).toEqual([
+      'jack "Saw" on "oscillator" is an output, used as an input',
+    ]);
+
+    const inAsOut: ModuleDSP = { ...validOscillatorEntry, outJacks: ["FM"] };
+    expect(validateEntryAgainstSeed(inAsOut, seed)).toEqual([
+      'jack "FM" on "oscillator" is an input, used as an output',
+    ]);
+  });
+
+  it("rejects an unknown output jack", () => {
+    const broken: ModuleDSP = { ...validOscillatorEntry, outJacks: ["Sine", "Bogus"] };
+    expect(validateEntryAgainstSeed(broken, seed)).toEqual([
+      'unknown output jack "Bogus" on "oscillator"',
+    ]);
+  });
+
+  it("rejects an unknown control/param", () => {
+    const broken: ModuleDSP = {
+      ...validOscillatorEntry,
+      params: {
+        ...validOscillatorEntry.params,
+        Warp: { min: 0, max: 1, default: 0, curve: "linear" },
+      },
+    };
+    expect(validateEntryAgainstSeed(broken, seed)).toEqual([
+      'unknown control "Warp" on "oscillator"',
+    ]);
+  });
+
+  it("every real registry entry validates against the seed", () => {
+    for (const [slug, entry] of registry) {
+      expect(slug).toBe(entry.slug);
+      expect(validateEntryAgainstSeed(entry, seed)).toEqual([]);
+    }
+  });
+});
+
+describe("production registry", () => {
+  it("is empty until real kernels land (AP-5+)", () => {
+    expect(registry.size).toBe(0);
+  });
+
+  it("does not contain the toy test kernels", () => {
+    expect(registry.has("toy-sine")).toBe(false);
+    expect(registry.has("toy-gain")).toBe(false);
+  });
+});
+
+describe("isPlayable", () => {
+  it("returns false for null", () => {
+    expect(isPlayable(null)).toBe(false);
+  });
+
+  it("returns false for a slug not in the registry", () => {
+    expect(isPlayable("oscillator")).toBe(false);
+    expect(isPlayable("toy-sine")).toBe(false);
+  });
+});
