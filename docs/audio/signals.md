@@ -17,15 +17,25 @@ the audio preview engine. All numbers are normative. Kernels must import constan
 
 ## DAC conversion (audio-output only)
 
-`audio-output` is the sole point where virtual volts become DAC floats:
+`audio-output` is the sole point where virtual volts become DAC floats.
+The per-sample chain is:
 
 ```
-sample = tanh(volts / AUDIO_NORM)   // AUDIO_NORM = 5
+normalized = volts / AUDIO_NORM        // AUDIO_NORM = 5
+dcBlocked  = highPass(normalized)      // one-pole high-pass, DC_BLOCKER_CUTOFF_HZ cutoff
+output     = tanh(dcBlocked) × Level  // Level ∈ [0, 1], default 0.8
 ```
 
 Dividing by 5 maps ±5 V to ±1.0 at the input of the soft clipper;
 `tanh(±1)` then outputs about ±0.7616. Hotter signals approach ±1.0 smoothly.
-No other module converts volts to floats.
+The DC blocker removes DC offset with a one-pole high-pass
+(y = x − x₋₁ + R·y₋₁, R = 1 − 2π·DC_BLOCKER_CUTOFF_HZ/sr; currently 10 Hz) and has
+negligible effect on audio frequencies. No other module converts volts to floats.
+
+**Mono normalization**: if only `L In` is patched, the same signal feeds both
+left and right outputs. If only `R In` is patched, same behaviour. If neither
+is patched, both outputs are silence. When both are patched, channels are
+processed independently.
 
 ## Timing
 

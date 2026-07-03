@@ -35,6 +35,9 @@ export const BLOCK_FRAMES = 128;
  */
 export const ENGINE_VERSION = "0.1.0";
 
+/** DC blocker cutoff frequency in Hz (used by audio-output). */
+export const DC_BLOCKER_CUTOFF_HZ = 10;
+
 /** Convert a 1 V/oct pitch voltage to frequency in Hz. */
 export function voltsToHz(volts: number): number {
   return C4_HZ * Math.pow(2, volts);

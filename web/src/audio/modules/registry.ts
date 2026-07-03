@@ -5,6 +5,7 @@
 // registry.test.ts; every new kernel must pass docs/audio/kernel-checklist.md.
 
 import type { Kernel, ParamSpec } from "../engine/kernel";
+import { audioOutputKernel } from "./audioOutput";
 
 export interface ModuleDSP {
   slug: string; // must exist in seed/generic_modules.json
@@ -21,9 +22,21 @@ export interface ModuleDSP {
   };
 }
 
-// Empty until real kernels land (AP-5+). Toy test kernels live in
-// engine/testKernels.ts and must never be added here.
-export const registry: Map<string, ModuleDSP> = new Map();
+export const registry: Map<string, ModuleDSP> = new Map([
+  [
+    "audio-output",
+    {
+      slug: "audio-output",
+      kernel: audioOutputKernel,
+      inJacks: ["L In", "R In"],
+      outJacks: [],
+      params: {
+        Level: { min: 0, max: 1, default: 0.8, curve: "linear" },
+      },
+      audioOutput: { channels: 2 },
+    },
+  ],
+]);
 
 export function isPlayable(slug: string | null): boolean {
   return slug !== null && registry.has(slug);

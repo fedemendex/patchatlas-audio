@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { registry, isPlayable, type ModuleDSP } from "./registry";
+import { audioOutputKernel } from "./audioOutput";
 import { toyGainKernel, toySineKernel } from "../engine/testKernels";
 
 // --- Seed-integrity validator -----------------------------------------------
@@ -156,8 +157,13 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("is empty until real kernels land (AP-5+)", () => {
-    expect(registry.size).toBe(0);
+  it("has exactly the audio-output entry (size 1)", () => {
+    expect(registry.size).toBe(1);
+    expect(registry.has("audio-output")).toBe(true);
+  });
+
+  it("audio-output entry uses the canonical audioOutputKernel", () => {
+    expect(registry.get("audio-output")?.kernel).toBe(audioOutputKernel);
   });
 
   it("does not contain the toy test kernels", () => {
@@ -169,6 +175,10 @@ describe("production registry", () => {
 describe("isPlayable", () => {
   it("returns false for null", () => {
     expect(isPlayable(null)).toBe(false);
+  });
+
+  it("returns true for audio-output", () => {
+    expect(isPlayable("audio-output")).toBe(true);
   });
 
   it("returns false for a slug not in the registry", () => {
