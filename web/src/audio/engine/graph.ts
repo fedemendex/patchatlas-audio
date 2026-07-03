@@ -64,6 +64,13 @@ function paramsFor(dsp: ModuleDSP, module: Module, controlValues: Record<string,
 
 // ── Compilation ─────────────────────────────────────────────────────────────
 
+// Code-unit compare. localeCompare collation varies with the runtime's ICU
+// locale (hyphens — which UUIDs are full of — can even be ignorable), and
+// ordering here must not depend on the environment.
+function compareIds(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 interface Resolved {
   instanceId: string;
   module: Module;
@@ -124,7 +131,7 @@ function stronglyConnectedComponents(
             onStack.delete(popped);
             members.push(popped);
           } while (popped !== id);
-          members.sort((a, b) => a.localeCompare(b));
+          members.sort(compareIds);
           components.push(members);
         }
       }
@@ -136,6 +143,11 @@ function stronglyConnectedComponents(
 // Member order inside one component: DFS preorder over intra-component
 // edges from the smallest id. Following the cycle's flow direction keeps the
 // backward-edge (feedback) set small — typically one edge per simple loop.
+// The marking is deterministic and the non-feedback remainder is acyclic by
+// construction, but the set is NOT guaranteed globally minimal: densely
+// cross-linked components can mark an edge whose unmarking would still leave
+// the remainder acyclic. Cost of over-marking is one block of latency on
+// that edge, never incorrectness.
 function componentOrder(members: string[], successors: Map<string, string[]>): string[] {
   if (members.length === 1) return members;
   const inComp = new Set(members);
@@ -169,7 +181,7 @@ export function compileGraph(
   // Instance order is sorted by instanceId up front so classification,
   // ordering ties, and warning order are independent of doc array order.
   const instances = [...doc.modules].sort((a, b) =>
-    a.instanceId.localeCompare(b.instanceId),
+    compareIds(a.instanceId, b.instanceId),
   );
 
   const resolved = new Map<string, Resolved>();
@@ -227,7 +239,7 @@ export function compileGraph(
   const ids = [...resolved.keys()]; // already sorted via `instances`
   const successors = new Map<string, string[]>(ids.map((id) => [id, []]));
   for (const e of resolvedEdges) successors.get(e.fromId)?.push(e.toId);
-  for (const list of successors.values()) list.sort((a, b) => a.localeCompare(b));
+  for (const list of successors.values()) list.sort(compareIds);
 
   const components = stronglyConnectedComponents(ids, successors);
   const compOf = new Map<string, number>();
@@ -252,7 +264,7 @@ export function compileGraph(
     if (d === 0) readyComps.push(ci);
   });
   while (readyComps.length > 0) {
-    readyComps.sort((a, b) => components[a][0].localeCompare(components[b][0]));
+    readyComps.sort((a, b) => compareIds(components[a][0], components[b][0]));
     const ci = readyComps.shift() as number;
     order.push(...componentOrder(components[ci], successors));
     for (const next of compSuccessors[ci]) {

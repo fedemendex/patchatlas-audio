@@ -148,6 +148,14 @@ const chainDoc = doc({
   ],
 });
 
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object") {
+    for (const inner of Object.values(value)) deepFreeze(inner);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe("compileGraph", () => {
@@ -446,6 +454,31 @@ describe("compileGraph", () => {
     const { graph } = compileGraph(reversedDoc, catalog, registry);
 
     expect(graph.edges).toEqual([{ from: [0, 0], to: [1, 0], feedback: false }]);
+  });
+
+  it("does not mutate its inputs: a deep-frozen doc compiles identically", () => {
+    // Include an unknown module so the warning path runs against frozen state
+    // too. Any mutation of the frozen doc throws (test files are strict mode).
+    const base = doc({
+      modules: [
+        ...chainDoc.modules,
+        {
+          instanceId: "z-ghost",
+          moduleId: "mod-deleted",
+          label: "",
+          positionX: 0,
+          positionY: 0,
+          controlValues: {},
+        },
+      ],
+      connections: chainDoc.connections,
+    });
+    const frozen = deepFreeze(structuredClone(base));
+
+    const result = compileGraph(frozen, moduleById, fixtureRegistry);
+
+    expect(result).toEqual(compileGraph(base, moduleById, fixtureRegistry));
+    expect(frozen).toEqual(base);
   });
 
   it("is deterministic under shuffled module and connection order", () => {
