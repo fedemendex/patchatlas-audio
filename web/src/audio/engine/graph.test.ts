@@ -388,6 +388,66 @@ describe("compileGraph", () => {
     expect(graph.nodes).toHaveLength(2);
   });
 
+  it("drops a connection whose from endpoint is an input jack, even under in/out name collision", () => {
+    // "Sig" names both an in and an out jack; only direction disambiguates.
+    const thruModule = catalogModule({
+      id: "mod-thru",
+      name: "Toy Thru",
+      slug: "toy-thru",
+      jacks: [jack("j-thru-in", "Sig", "in", 0), jack("j-thru-out", "Sig", "out", 1)],
+    });
+    const thruDSP: ModuleDSP = {
+      slug: "toy-thru",
+      kernel: toyGainKernel,
+      inJacks: ["Sig"],
+      outJacks: ["Sig"],
+      params: {},
+    };
+    const catalog = new Map(moduleById).set("mod-thru", thruModule);
+    const registry = new Map(fixtureRegistry).set("toy-thru", thruDSP);
+    const reversedDoc = doc({
+      modules: [
+        {
+          instanceId: "a-thru",
+          moduleId: "mod-thru",
+          label: "",
+          positionX: 0,
+          positionY: 0,
+          controlValues: {},
+        },
+        {
+          instanceId: "b-gain",
+          moduleId: "mod-gain",
+          label: "",
+          positionX: 0,
+          positionY: 0,
+          controlValues: {},
+        },
+      ],
+      connections: [
+        // Legit: thru's OUT jack → gain in.
+        {
+          fromInstanceId: "a-thru",
+          fromJackId: "j-thru-out",
+          toInstanceId: "b-gain",
+          toJackId: "j-gain-in",
+        },
+        // Bogus: thru's IN jack as the from endpoint — must be dropped, not
+        // resolved through the identically named out jack.
+        {
+          fromInstanceId: "a-thru",
+          fromJackId: "j-thru-in",
+          toInstanceId: "b-gain",
+          toJackId: "j-gain-in",
+        },
+      ],
+    });
+
+    const { graph } = compileGraph(reversedDoc, catalog, registry);
+
+    expect(graph.edges).toEqual([{ from: [0, 0], to: [1, 0], feedback: false }]);
+  });
+
   it("is deterministic under shuffled module and connection order", () => {
     const base = doc({
       modules: [

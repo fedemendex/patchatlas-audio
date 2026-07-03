@@ -212,7 +212,7 @@ export function compileGraph(
     if (!from || !to) continue;
     const fromJack = from.module.jacks.find((j) => j.id === conn.fromJackId);
     const toJack = to.module.jacks.find((j) => j.id === conn.toJackId);
-    if (!fromJack || !toJack) continue;
+    if (fromJack?.direction !== "out" || toJack?.direction !== "in") continue;
     const outSlot = from.dsp.outJacks.indexOf(fromJack.name);
     const inSlot = to.dsp.inJacks.indexOf(toJack.name);
     if (outSlot === -1 || inSlot === -1) continue;
