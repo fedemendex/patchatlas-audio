@@ -7,6 +7,10 @@ import { describe, it, expect } from "vitest";
 import { registry, isPlayable, type ModuleDSP } from "./registry";
 import { audioOutputKernel } from "./audioOutput";
 import { oscillatorKernel } from "./oscillator";
+import { vcaKernel } from "./vca";
+import { attenuverterKernel } from "./attenuverter";
+import { multKernel } from "./mult";
+import { mixerKernel } from "./mixer";
 import { toyGainKernel, toySineKernel } from "../engine/testKernels";
 
 // --- Seed-integrity validator -----------------------------------------------
@@ -20,7 +24,7 @@ interface SeedModule {
   slug: string;
   inputs: { name: string }[];
   outputs: { name: string }[];
-  controls: { name: string }[];
+  controls: { name: string; count?: number }[];
 }
 
 const seed = JSON.parse(
@@ -34,7 +38,17 @@ function validateEntryAgainstSeed(entry: ModuleDSP, seedModules: SeedModule[]): 
   const errors: string[] = [];
   const inputs = new Set(seeded.inputs.map((j) => j.name));
   const outputs = new Set(seeded.outputs.map((j) => j.name));
-  const controls = new Set(seeded.controls.map((c) => c.name));
+  // Expand counted controls to their "{name} {n}" (1-based) DB names,
+  // matching the contractual expansion in internal/api/seed/loader.go.
+  // Go expands any non-nil count (including count=1); nil count uses bare name.
+  const controls = new Set<string>();
+  for (const c of seeded.controls) {
+    if (c.count != null) {
+      for (let n = 1; n <= c.count; n++) controls.add(`${c.name} ${n}`);
+    } else {
+      controls.add(c.name);
+    }
+  }
 
   for (const name of entry.inJacks) {
     if (!inputs.has(name)) {
@@ -149,6 +163,60 @@ describe("seed-integrity validator", () => {
     ]);
   });
 
+  // count-expansion fixtures use an inline mock seed so we can control the
+  // count value precisely without depending on a real seed entry.
+  const countMockSeed: SeedModule[] = [
+    {
+      slug: "mock-one",
+      inputs: [{ name: "In" }],
+      outputs: [{ name: "Out" }],
+      controls: [{ name: "Att", count: 1 }],
+    },
+    {
+      slug: "mock-two",
+      inputs: [],
+      outputs: [],
+      controls: [{ name: "Att", count: 2 }],
+    },
+  ];
+
+  it("accepts expanded '{name} 1' param for a count=1 control", () => {
+    const valid: ModuleDSP = {
+      slug: "mock-one",
+      kernel: toyGainKernel,
+      inJacks: ["In"],
+      outJacks: ["Out"],
+      params: { "Att 1": { min: -1, max: 1, default: 0, curve: "linear" } },
+    };
+    expect(validateEntryAgainstSeed(valid, countMockSeed)).toEqual([]);
+  });
+
+  it("rejects bare-name param when seed control has count=1", () => {
+    const broken: ModuleDSP = {
+      slug: "mock-one",
+      kernel: toyGainKernel,
+      inJacks: ["In"],
+      outJacks: ["Out"],
+      params: { Att: { min: -1, max: 1, default: 0, curve: "linear" } },
+    };
+    expect(validateEntryAgainstSeed(broken, countMockSeed)).toContain(
+      'unknown control "Att" on "mock-one"',
+    );
+  });
+
+  it("rejects bare-name param when seed control has count=2", () => {
+    const broken: ModuleDSP = {
+      slug: "mock-two",
+      kernel: toyGainKernel,
+      inJacks: [],
+      outJacks: [],
+      params: { Att: { min: -1, max: 1, default: 0, curve: "linear" } },
+    };
+    expect(validateEntryAgainstSeed(broken, countMockSeed)).toContain(
+      'unknown control "Att" on "mock-two"',
+    );
+  });
+
   it("every real registry entry validates against the seed", () => {
     for (const [slug, entry] of registry) {
       expect(slug).toBe(entry.slug);
@@ -158,10 +226,11 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the audio-output and oscillator entries (size 2)", () => {
-    expect(registry.size).toBe(2);
-    expect(registry.has("audio-output")).toBe(true);
-    expect(registry.has("oscillator")).toBe(true);
+  it("has exactly the six AP-8 entries (size 6)", () => {
+    expect(registry.size).toBe(6);
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer"]) {
+      expect(registry.has(slug)).toBe(true);
+    }
   });
 
   it("audio-output entry uses the canonical audioOutputKernel", () => {
@@ -170,6 +239,22 @@ describe("production registry", () => {
 
   it("oscillator entry uses the canonical oscillatorKernel", () => {
     expect(registry.get("oscillator")?.kernel).toBe(oscillatorKernel);
+  });
+
+  it("vca entry uses the canonical vcaKernel", () => {
+    expect(registry.get("vca")?.kernel).toBe(vcaKernel);
+  });
+
+  it("attenuverter entry uses the canonical attenuverterKernel", () => {
+    expect(registry.get("attenuverter")?.kernel).toBe(attenuverterKernel);
+  });
+
+  it("mult entry uses the canonical multKernel", () => {
+    expect(registry.get("mult")?.kernel).toBe(multKernel);
+  });
+
+  it("mixer entry uses the canonical mixerKernel", () => {
+    expect(registry.get("mixer")?.kernel).toBe(mixerKernel);
   });
 
   it("does not contain the toy test kernels", () => {
@@ -183,9 +268,10 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for audio-output and oscillator", () => {
-    expect(isPlayable("audio-output")).toBe(true);
-    expect(isPlayable("oscillator")).toBe(true);
+  it("returns true for all six AP-8 playable slugs", () => {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer"]) {
+      expect(isPlayable(slug)).toBe(true);
+    }
   });
 
   it("returns false for a slug not in the registry", () => {

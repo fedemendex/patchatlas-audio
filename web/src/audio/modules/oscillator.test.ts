@@ -80,8 +80,7 @@ function goertzelPower(buf: Float32Array, hz: number, sr: number = SR): number {
 // ── 1. Registry ───────────────────────────────────────────────────────────────
 
 describe("oscillator registry entry", () => {
-  it("production registry has exactly audio-output and oscillator (size 2)", () => {
-    expect(registry.size).toBe(2);
+  it("production registry contains audio-output and oscillator", () => {
     expect(registry.has("audio-output")).toBe(true);
     expect(registry.has("oscillator")).toBe(true);
   });

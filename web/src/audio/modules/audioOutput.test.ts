@@ -58,8 +58,7 @@ const mixedRegistry = new Map<string, ModuleDSP>([...testRegistry, ...registry])
 // ── 1. Registry integrity ─────────────────────────────────────────────────────
 
 describe("registry integrity", () => {
-  it("production registry has exactly audio-output and oscillator (size 2)", () => {
-    expect(registry.size).toBe(2);
+  it("production registry contains audio-output and oscillator", () => {
     expect(registry.has("audio-output")).toBe(true);
     expect(registry.has("oscillator")).toBe(true);
   });

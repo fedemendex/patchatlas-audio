@@ -39,6 +39,21 @@ left and right outputs. If only `R In` is patched, same behaviour. If neither
 is patched, both outputs are silence. When both are patched, channels are
 processed independently.
 
+## VCA response curves
+
+Both curves normalize the CV input by `CV_BIPOLAR_MAX` (5 V), so 5 V CV at full
+`CV Amt` = unity gain when `Gain` is at maximum.
+
+```
+normalizedCv = max(0, CV * cvAmt / CV_BIPOLAR_MAX)   // no upper clamp; headroom is legal
+
+Linear:  gain = Gain * normalizedCv
+Exp:     gain = Gain * normalizedCv²                  // monotone; 0→0, 1→1; gentler approach to unity
+```
+
+When the CV jack is unpatched, `gain = Gain` (level control only; `CV Amt` is irrelevant).
+No soft-clipping inside the VCA — only `audio-output` clips.
+
 ## Linear FM scaling
 
 Linear FM adds `FM input volts × FM Amt × LINEAR_FM_HZ_PER_VOLT` to the oscillator

@@ -7,6 +7,10 @@
 import type { Kernel, ParamSpec } from "../engine/kernel";
 import { audioOutputKernel } from "./audioOutput";
 import { oscillatorKernel } from "./oscillator";
+import { vcaKernel } from "./vca";
+import { attenuverterKernel } from "./attenuverter";
+import { multKernel } from "./mult";
+import { mixerKernel } from "./mixer";
 
 export interface ModuleDSP {
   slug: string; // must exist in seed/generic_modules.json
@@ -50,6 +54,58 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
         "FM Amt": { min: -1, max: 1, default: 0, curve: "linear" },
         "EFM Amt": { min: -1, max: 1, default: 0, curve: "linear" },
         PW: { min: 0.05, max: 0.95, default: 0.5, curve: "linear" },
+      },
+    },
+  ],
+  [
+    "vca",
+    {
+      slug: "vca",
+      kernel: vcaKernel,
+      inJacks: ["In", "CV"],
+      outJacks: ["Out"],
+      params: {
+        Gain: { min: 0, max: 1, default: 1, curve: "linear" },
+        "CV Amt": { min: 0, max: 1, default: 1, curve: "linear" },
+        Response: { min: 0, max: 1, default: 1, curve: "positions", positions: ["Exp", "Lin"] },
+      },
+    },
+  ],
+  [
+    "attenuverter",
+    {
+      slug: "attenuverter",
+      kernel: attenuverterKernel,
+      inJacks: ["In 1", "In 2"],
+      outJacks: ["Out 1", "Out 2"],
+      params: {
+        "Att 1": { min: -1, max: 1, default: 0, curve: "linear" },
+        "Att 2": { min: -1, max: 1, default: 0, curve: "linear" },
+      },
+    },
+  ],
+  [
+    "mult",
+    {
+      slug: "mult",
+      kernel: multKernel,
+      inJacks: ["In"],
+      outJacks: ["Out 1", "Out 2", "Out 3"],
+      params: {},
+    },
+  ],
+  [
+    "mixer",
+    {
+      slug: "mixer",
+      kernel: mixerKernel,
+      inJacks: ["In 1", "In 2", "In 3", "In 4"],
+      outJacks: ["Mix", "Inv"],
+      params: {
+        "Level 1": { min: 0, max: 1, default: 1, curve: "linear" },
+        "Level 2": { min: 0, max: 1, default: 1, curve: "linear" },
+        "Level 3": { min: 0, max: 1, default: 1, curve: "linear" },
+        "Level 4": { min: 0, max: 1, default: 1, curve: "linear" },
       },
     },
   ],
