@@ -60,6 +60,15 @@ Linear FM adds `FM input volts × FM Amt × LINEAR_FM_HZ_PER_VOLT` to the oscill
 frequency in Hz (`LINEAR_FM_HZ_PER_VOLT` = 100 — v1 educational scaling, not
 hardware-accurate). Frequency clamps at 0 Hz: no negative/through-zero FM in v1.
 
+## Modulation sources
+
+The envelope generator's `Env` output is unipolar 0 → 10 V; its `Inv` output is the
+polarity-inverted envelope (0 → −10 V, the same convention as the mixer's `Inv`), and `EOC`
+emits a standard trigger (1 ms at 10 V) when the release segment completes. The LFO's shape
+outputs are bipolar ±5 V. LFO Rate CV is 1 V/oct around the Rate knob and may slow the LFO
+to 0 Hz; the upper rate is capped at 30 Hz (the preview LFO is deliberately sub-audio).
+`Sub` is a square one octave below the main rate.
+
 ## Timing
 
 - **Sample rate**: taken from the environment (`AudioContext.sampleRate`) at kernel init.

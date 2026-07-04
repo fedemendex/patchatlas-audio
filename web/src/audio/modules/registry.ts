@@ -5,6 +5,7 @@
 // registry.test.ts; every new kernel must pass docs/audio/kernel-checklist.md.
 
 import type { Kernel, ParamSpec } from "../engine/kernel";
+import { GATE_HIGH_V } from "../engine/units";
 import { audioOutputKernel } from "./audioOutput";
 import { oscillatorKernel } from "./oscillator";
 import { vcaKernel } from "./vca";
@@ -12,6 +13,8 @@ import { attenuverterKernel } from "./attenuverter";
 import { multKernel } from "./mult";
 import { mixerKernel } from "./mixer";
 import { filterKernel } from "./filter";
+import { envelopeGeneratorKernel } from "./envelopeGenerator";
+import { lfoKernel } from "./lfo";
 
 export interface ModuleDSP {
   slug: string; // must exist in seed/generic_modules.json
@@ -122,6 +125,33 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
         Res: { min: 0, max: 1, default: 0, curve: "linear" },
         "CV Amt": { min: -1, max: 1, default: 0, curve: "linear" },
         "Track Amt": { min: -1, max: 1, default: 0, curve: "linear" },
+      },
+    },
+  ],
+  [
+    "envelope-generator",
+    {
+      slug: "envelope-generator",
+      kernel: envelopeGeneratorKernel,
+      inJacks: ["Gate", "Retrigger"],
+      outJacks: ["Env", "Inv", "EOC"],
+      params: {
+        A: { min: 0.001, max: 10, default: 0.01, curve: "exponential" },
+        D: { min: 0.001, max: 10, default: 0.2, curve: "exponential" },
+        S: { min: 0, max: GATE_HIGH_V, default: GATE_HIGH_V * 0.7, curve: "linear" },
+        R: { min: 0.001, max: 10, default: 0.3, curve: "exponential" },
+      },
+    },
+  ],
+  [
+    "lfo",
+    {
+      slug: "lfo",
+      kernel: lfoKernel,
+      inJacks: ["Rate CV", "Rst"],
+      outJacks: ["Sine", "Tri", "Sq", "Saw", "Sub"],
+      params: {
+        Rate: { min: 0.01, max: 30, default: 2, curve: "exponential" },
       },
     },
   ],

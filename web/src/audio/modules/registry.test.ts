@@ -12,6 +12,8 @@ import { attenuverterKernel } from "./attenuverter";
 import { multKernel } from "./mult";
 import { mixerKernel } from "./mixer";
 import { filterKernel } from "./filter";
+import { envelopeGeneratorKernel } from "./envelopeGenerator";
+import { lfoKernel } from "./lfo";
 import { toyGainKernel, toySineKernel } from "../engine/testKernels";
 
 // --- Seed-integrity validator -----------------------------------------------
@@ -227,8 +229,8 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the seven AP-9 entries (size 7)", () => {
-    expect(registry.size).toBe(7);
+  it("has exactly the nine AP-10 entries (size 9)", () => {
+    expect(registry.size).toBe(9);
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -237,6 +239,8 @@ describe("production registry", () => {
       "mult",
       "mixer",
       "filter",
+      "envelope-generator",
+      "lfo",
     ]) {
       expect(registry.has(slug)).toBe(true);
     }
@@ -270,6 +274,14 @@ describe("production registry", () => {
     expect(registry.get("filter")?.kernel).toBe(filterKernel);
   });
 
+  it("envelope-generator entry uses the canonical envelopeGeneratorKernel", () => {
+    expect(registry.get("envelope-generator")?.kernel).toBe(envelopeGeneratorKernel);
+  });
+
+  it("lfo entry uses the canonical lfoKernel", () => {
+    expect(registry.get("lfo")?.kernel).toBe(lfoKernel);
+  });
+
   it("does not contain the toy test kernels", () => {
     expect(registry.has("toy-sine")).toBe(false);
     expect(registry.has("toy-gain")).toBe(false);
@@ -281,7 +293,7 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for all seven AP-9 playable slugs", () => {
+  it("returns true for all nine AP-10 playable slugs", () => {
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -290,6 +302,8 @@ describe("isPlayable", () => {
       "mult",
       "mixer",
       "filter",
+      "envelope-generator",
+      "lfo",
     ]) {
       expect(isPlayable(slug)).toBe(true);
     }
