@@ -15,6 +15,8 @@ the audio preview engine. All numbers are normative. Kernels must import constan
 | Gates | 0 V low / 10 V high; inputs use a Schmitt trigger: re-arm below 0.1 V, fire at ≥ 1 V |
 | Triggers | 1 ms pulse at 10 V |
 
+The generic attenuverter treats an unpatched input as normalled to +CV_BIPOLAR_MAX, so the bipolar knob produces a manual -5 V..+5 V offset with the current signal convention.
+
 ## DAC conversion (audio-output only)
 
 `audio-output` is the sole point where virtual volts become DAC floats.
