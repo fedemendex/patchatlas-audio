@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { registry, isPlayable, type ModuleDSP } from "./registry";
 import { audioOutputKernel } from "./audioOutput";
+import { oscillatorKernel } from "./oscillator";
 import { toyGainKernel, toySineKernel } from "../engine/testKernels";
 
 // --- Seed-integrity validator -----------------------------------------------
@@ -157,13 +158,18 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the audio-output entry (size 1)", () => {
-    expect(registry.size).toBe(1);
+  it("has exactly the audio-output and oscillator entries (size 2)", () => {
+    expect(registry.size).toBe(2);
     expect(registry.has("audio-output")).toBe(true);
+    expect(registry.has("oscillator")).toBe(true);
   });
 
   it("audio-output entry uses the canonical audioOutputKernel", () => {
     expect(registry.get("audio-output")?.kernel).toBe(audioOutputKernel);
+  });
+
+  it("oscillator entry uses the canonical oscillatorKernel", () => {
+    expect(registry.get("oscillator")?.kernel).toBe(oscillatorKernel);
   });
 
   it("does not contain the toy test kernels", () => {
@@ -177,12 +183,12 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for audio-output", () => {
+  it("returns true for audio-output and oscillator", () => {
     expect(isPlayable("audio-output")).toBe(true);
+    expect(isPlayable("oscillator")).toBe(true);
   });
 
   it("returns false for a slug not in the registry", () => {
-    expect(isPlayable("oscillator")).toBe(false);
     expect(isPlayable("toy-sine")).toBe(false);
   });
 });

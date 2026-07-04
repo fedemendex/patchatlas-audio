@@ -37,6 +37,12 @@ left and right outputs. If only `R In` is patched, same behaviour. If neither
 is patched, both outputs are silence. When both are patched, channels are
 processed independently.
 
+## Linear FM scaling
+
+Linear FM adds `FM input volts × FM Amt × LINEAR_FM_HZ_PER_VOLT` to the oscillator
+frequency in Hz (`LINEAR_FM_HZ_PER_VOLT` = 100 — v1 educational scaling, not
+hardware-accurate). Frequency clamps at 0 Hz: no negative/through-zero FM in v1.
+
 ## Timing
 
 - **Sample rate**: taken from the environment (`AudioContext.sampleRate`) at kernel init.
