@@ -69,6 +69,12 @@ outputs are bipolar ±5 V. LFO Rate CV is 1 V/oct around the Rate knob and may s
 to 0 Hz; the upper rate is capped at 30 Hz (the preview LFO is deliberately sub-audio).
 `Sub` is a square one octave below the main rate.
 
+The noise source's `White` output is bipolar ±5 V uniform noise (expected RMS
+`CV_BIPOLAR_MAX / √3` ≈ 2.886 V); `Pink` is a small one-pole-sum approximation of the same
+noise, not exact 1/f. `Sample & Hold`'s `Trig` input uses the standard Schmitt gate
+thresholds; the trigger sample itself already carries the newly sampled value (sampling
+happens before the output is written, never one sample later).
+
 ## Timing
 
 - **Sample rate**: taken from the environment (`AudioContext.sampleRate`) at kernel init.

@@ -15,6 +15,8 @@ import { mixerKernel } from "./mixer";
 import { filterKernel } from "./filter";
 import { envelopeGeneratorKernel } from "./envelopeGenerator";
 import { lfoKernel } from "./lfo";
+import { noiseSourceKernel } from "./noiseSource";
+import { sampleAndHoldKernel } from "./sampleAndHold";
 
 export interface ModuleDSP {
   slug: string; // must exist in seed/generic_modules.json
@@ -152,6 +154,30 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       outJacks: ["Sine", "Tri", "Sq", "Saw", "Sub"],
       params: {
         Rate: { min: 0.01, max: 30, default: 2, curve: "exponential" },
+      },
+    },
+  ],
+  [
+    "noise-source",
+    {
+      slug: "noise-source",
+      kernel: noiseSourceKernel,
+      inJacks: [],
+      outJacks: ["White", "Pink", "Red", "Blue"],
+      params: {},
+    },
+  ],
+  [
+    "sample-and-hold",
+    {
+      slug: "sample-and-hold",
+      kernel: sampleAndHoldKernel,
+      inJacks: ["In", "Trig"],
+      outJacks: ["S&H", "T&H"],
+      params: {
+        // Deferred (unread by the kernel — see sampleAndHold.ts header):
+        // default 0 matches the current instantaneous (no-slew) behavior.
+        Slew: { min: 0, max: 1, default: 0, curve: "linear" },
       },
     },
   ],

@@ -14,6 +14,8 @@ import { mixerKernel } from "./mixer";
 import { filterKernel } from "./filter";
 import { envelopeGeneratorKernel } from "./envelopeGenerator";
 import { lfoKernel } from "./lfo";
+import { noiseSourceKernel } from "./noiseSource";
+import { sampleAndHoldKernel } from "./sampleAndHold";
 import { toyGainKernel, toySineKernel } from "../engine/testKernels";
 
 // --- Seed-integrity validator -----------------------------------------------
@@ -229,8 +231,8 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the nine AP-10 entries (size 9)", () => {
-    expect(registry.size).toBe(9);
+  it("has exactly the eleven AP-11 entries (size 11)", () => {
+    expect(registry.size).toBe(11);
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -241,6 +243,8 @@ describe("production registry", () => {
       "filter",
       "envelope-generator",
       "lfo",
+      "noise-source",
+      "sample-and-hold",
     ]) {
       expect(registry.has(slug)).toBe(true);
     }
@@ -282,6 +286,18 @@ describe("production registry", () => {
     expect(registry.get("lfo")?.kernel).toBe(lfoKernel);
   });
 
+  it("noise-source entry uses the canonical noiseSourceKernel", () => {
+    expect(registry.get("noise-source")?.kernel).toBe(noiseSourceKernel);
+  });
+
+  it("sample-and-hold entry uses the canonical sampleAndHoldKernel", () => {
+    expect(registry.get("sample-and-hold")?.kernel).toBe(sampleAndHoldKernel);
+  });
+
+  it("does not contain the deferred noise-random slug", () => {
+    expect(registry.has("noise-random")).toBe(false);
+  });
+
   it("does not contain the toy test kernels", () => {
     expect(registry.has("toy-sine")).toBe(false);
     expect(registry.has("toy-gain")).toBe(false);
@@ -293,7 +309,7 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for all nine AP-10 playable slugs", () => {
+  it("returns true for all eleven AP-11 playable slugs", () => {
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -304,6 +320,8 @@ describe("isPlayable", () => {
       "filter",
       "envelope-generator",
       "lfo",
+      "noise-source",
+      "sample-and-hold",
     ]) {
       expect(isPlayable(slug)).toBe(true);
     }
