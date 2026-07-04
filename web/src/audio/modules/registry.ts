@@ -11,6 +11,7 @@ import { vcaKernel } from "./vca";
 import { attenuverterKernel } from "./attenuverter";
 import { multKernel } from "./mult";
 import { mixerKernel } from "./mixer";
+import { filterKernel } from "./filter";
 
 export interface ModuleDSP {
   slug: string; // must exist in seed/generic_modules.json
@@ -106,6 +107,21 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
         "Level 2": { min: 0, max: 1, default: 1, curve: "linear" },
         "Level 3": { min: 0, max: 1, default: 1, curve: "linear" },
         "Level 4": { min: 0, max: 1, default: 1, curve: "linear" },
+      },
+    },
+  ],
+  [
+    "filter",
+    {
+      slug: "filter",
+      kernel: filterKernel,
+      inJacks: ["In", "1V/Oct", "Cut CV", "FM", "Res CV"],
+      outJacks: ["LP", "BP", "HP"],
+      params: {
+        Cutoff: { min: 20, max: 16000, default: 1000, curve: "exponential" },
+        Res: { min: 0, max: 1, default: 0, curve: "linear" },
+        "CV Amt": { min: -1, max: 1, default: 0, curve: "linear" },
+        "Track Amt": { min: -1, max: 1, default: 0, curve: "linear" },
       },
     },
   ],

@@ -11,6 +11,7 @@ import { vcaKernel } from "./vca";
 import { attenuverterKernel } from "./attenuverter";
 import { multKernel } from "./mult";
 import { mixerKernel } from "./mixer";
+import { filterKernel } from "./filter";
 import { toyGainKernel, toySineKernel } from "../engine/testKernels";
 
 // --- Seed-integrity validator -----------------------------------------------
@@ -226,9 +227,17 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the six AP-8 entries (size 6)", () => {
-    expect(registry.size).toBe(6);
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer"]) {
+  it("has exactly the seven AP-9 entries (size 7)", () => {
+    expect(registry.size).toBe(7);
+    for (const slug of [
+      "audio-output",
+      "oscillator",
+      "vca",
+      "attenuverter",
+      "mult",
+      "mixer",
+      "filter",
+    ]) {
       expect(registry.has(slug)).toBe(true);
     }
   });
@@ -257,6 +266,10 @@ describe("production registry", () => {
     expect(registry.get("mixer")?.kernel).toBe(mixerKernel);
   });
 
+  it("filter entry uses the canonical filterKernel", () => {
+    expect(registry.get("filter")?.kernel).toBe(filterKernel);
+  });
+
   it("does not contain the toy test kernels", () => {
     expect(registry.has("toy-sine")).toBe(false);
     expect(registry.has("toy-gain")).toBe(false);
@@ -268,8 +281,16 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for all six AP-8 playable slugs", () => {
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer"]) {
+  it("returns true for all seven AP-9 playable slugs", () => {
+    for (const slug of [
+      "audio-output",
+      "oscillator",
+      "vca",
+      "attenuverter",
+      "mult",
+      "mixer",
+      "filter",
+    ]) {
       expect(isPlayable(slug)).toBe(true);
     }
   });

@@ -299,6 +299,14 @@ export class Interpreter {
   /**
    * Sets a param's smoothing target, clamped to the ParamSpec [min, max]
    * range (engine units). Unknown instance/control is a no-op.
+   *
+   * IMPORTANT — engine units only: this method applies no curve transform.
+   * Values must already be in engine units (e.g. Hz for Cutoff, not a
+   * normalised 0..1 knob position). The `curve` field in ParamSpec is a
+   * UI/compile-time hint consumed by `paramValue()` in compileGraph; any
+   * future live-param fast-path (e.g. knob automation) must apply the same
+   * exponential mapping before calling setParam — passing a normalised value
+   * for an exponential param will pin the result at `min` for any input < min.
    */
   setParam(instanceId: string, controlName: string, value: number): void {
     const nodeIndex = this.nodeIndexById.get(instanceId);
