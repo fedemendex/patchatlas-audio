@@ -13,6 +13,7 @@ const SR = 48000;
 interface ProcessorLike {
   port: {
     onmessage: ((e: { data: EngineWorkletMessage }) => void) | null;
+    postMessage: (message: unknown) => void;
   };
   process(
     inputs: Float32Array[][],
@@ -22,7 +23,7 @@ interface ProcessorLike {
 }
 
 class FakeAudioWorkletProcessor {
-  port: ProcessorLike["port"] = { onmessage: null };
+  port: ProcessorLike["port"] = { onmessage: null, postMessage: () => {} };
 }
 
 let ProcessorCtor: new () => ProcessorLike;
@@ -56,6 +57,20 @@ function sineToOutputGraph(tuneOctaves = 0): EngineGraph {
     ],
     edges: [{ from: [0, 3], to: [1, 0], feedback: false }],
     outputNodes: [1],
+  };
+}
+
+// clock.Clk → sequencer.Clk; no audio output (telemetry runs regardless). The
+// sequencer params are [Len, CV 1..8, On 1..8]; step 0 is latched on the
+// downbeat, so readSteps reports 0.
+function clockSequencerGraph(): EngineGraph {
+  return {
+    nodes: [
+      { instanceId: "clk", slug: "clock", params: [120] },
+      { instanceId: "seq", slug: "sequencer", params: [8, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1] },
+    ],
+    edges: [{ from: [0, 0], to: [1, 0], feedback: false }],
+    outputNodes: [],
   };
 }
 
@@ -165,6 +180,34 @@ describe("engine worklet processor", () => {
     expect(first.peakL).toBeLessThan(0.1);
     const steady = runBlocks(30);
     expect(steady.peakL).toBeGreaterThan(0.3);
+  });
+
+  it("posts throttled, instanceId-keyed sequencer-step telemetry", () => {
+    const posted: { ids: string[]; steps: number[] }[] = [];
+    proc.port.postMessage = (m) => {
+      // Snapshot: the worklet reuses the message object and its buffers.
+      const msg = m as { ids: string[]; steps: Int32Array };
+      posted.push({ ids: [...msg.ids], steps: [...msg.steps] });
+    };
+    send({ type: "graph", graph: clockSequencerGraph() });
+
+    // Report interval ≈ 0.03·SR = 1440 samples ≈ 12 blocks; run past it.
+    runBlocks(15);
+
+    expect(posted.length).toBeGreaterThanOrEqual(1);
+    expect(posted[0].ids).toEqual(["seq"]);
+    expect(posted[0].steps).toEqual([0]); // step 0 latched on the downbeat
+  });
+
+  it("keeps rendering audio when a step postMessage throws", () => {
+    proc.port.postMessage = () => {
+      throw new Error("port closed");
+    };
+    send({ type: "graph", graph: clockSequencerGraph() });
+    // Well past the report interval, so a post is attempted (and swallowed).
+    for (let b = 0; b < 20; b++) {
+      expect(proc.process([], [[left, right]], {})).toBe(true);
+    }
   });
 
   it("handles a mono output array without crashing and still writes audio", () => {

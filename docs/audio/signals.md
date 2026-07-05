@@ -82,6 +82,30 @@ happens before the output is written, never one sample later).
 - **Block size**: 128 frames (the Web Audio render quantum). Jacks carry a mono
   `Float32Array` of 128 samples per block. Kernels loop per-sample inside a block.
 
+## Clock and sequencer timing
+
+All musical time is generated inside kernels, sample by sample, on the audio thread — never
+`setTimeout`/`setInterval`/`requestAnimationFrame`/`Date.now`/`performance.now`. (The one
+timer under `web/src/audio`, in `useAudioEngine`, is a non-musical graph-rebuild debounce.)
+
+- **Clock** (`clock`): the `Tempo` knob sets a quarter-note rate (30 → 300 BPM, default 120).
+  `Clk` emits a standard trigger (1 ms at 10 V) each tick; timing uses a fractional sample
+  accumulator (`period = sr·60/BPM`; fire at `phase ≥ period`, then `phase −= period`) so tick
+  positions stay within ±1 sample of `m·period` over any render — zero cumulative drift.
+  `/2 /4 /8 /16` fire on every 2nd/4th/8th/16th parent tick, sample-aligned with `Clk`
+  (all five coincide on tick 0). Unpatched `Run` runs; a `Run` low stops (Schmitt). A `Rst`
+  rising edge restarts to the power-on state — divide counter to 0, downbeat on the reset
+  sample. (Seed `Ext Clk` input and `Swing` control are deferred.)
+- **Sequencer** (`sequencer`): advances one step per `Clk` rising edge (standard Schmitt
+  thresholds); the first edge after init/reset latches step 0 (never an off-by-one to step 1).
+  Step CV comes from the stored `CV 1..8` controls, each mapped **0 → 2 V** (two octaves at
+  1 V/oct); CV changes on the edge sample and holds between edges. `Gate` is high for
+  `SEQUENCER_GATE_DUTY` = 0.5 of the measured previous clock period after each step, gated by
+  that step's `On` button (a disabled step is a rest: gate low, CV still updates); the first
+  edge (no measured period yet) uses a fixed `INITIAL_GATE_SECONDS` = 0.05 fallback. `Len`
+  (1 → 8) sets the wrap length. `Rst` rising edge returns to step 0. (Seed `Dir`/`Sel` inputs
+  are deferred.)
+
 ## Jacks
 
 All jacks are mono. There are no stereo jacks in v1.

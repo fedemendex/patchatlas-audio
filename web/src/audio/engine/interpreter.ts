@@ -54,6 +54,12 @@ export class Interpreter {
   private readonly leftSources: Float32Array[];
   private readonly rightSources: Float32Array[];
 
+  // Step-reporting nodes (dsp.reportsStep): parallel arrays of instanceId and
+  // node index. The worklet reads `stepReportIds` once to size its channel and
+  // calls `readSteps` per throttled tick — a UI indicator path, never DSP.
+  readonly stepReportIds: string[];
+  private readonly stepReportNodeIndices: Int32Array;
+
   // Feedback double buffers. Each out jack sourcing a feedback edge owns a
   // buffer pair (A/B). `flip` selects the front buffer (written this block):
   // A when 0, B when 1; the back buffer holds the previous block. At block
@@ -203,6 +209,17 @@ export class Interpreter {
       this.mixStart[i + 1] = this.mixBufs.length;
     }
 
+    const stepIds: string[] = [];
+    const stepIndices: number[] = [];
+    dsps.forEach((dsp, i) => {
+      if (dsp.reportsStep) {
+        stepIds.push(nodes[i].instanceId);
+        stepIndices.push(i);
+      }
+    });
+    this.stepReportIds = stepIds;
+    this.stepReportNodeIndices = Int32Array.from(stepIndices);
+
     this.leftSources = [];
     this.rightSources = [];
     for (const nodeIndex of graph.outputNodes) {
@@ -293,6 +310,19 @@ export class Interpreter {
     for (let k = 0; k < rightSources.length; k++) {
       const src = rightSources[k];
       for (let i = 0; i < n; i++) right[i] += src[i];
+    }
+  }
+
+  /**
+   * Writes each step-reporting node's current step into `out` (same order as
+   * `stepReportIds`). Allocation-free UI telemetry — reads the kernel state's
+   * `step` field; no effect on audio.
+   */
+  readSteps(out: Int32Array): void {
+    const idx = this.stepReportNodeIndices;
+    const states = this.states;
+    for (let k = 0; k < idx.length; k++) {
+      out[k] = (states[idx[k]] as { step: number }).step;
     }
   }
 

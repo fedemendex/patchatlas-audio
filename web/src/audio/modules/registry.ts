@@ -17,6 +17,8 @@ import { envelopeGeneratorKernel } from "./envelopeGenerator";
 import { lfoKernel } from "./lfo";
 import { noiseSourceKernel } from "./noiseSource";
 import { sampleAndHoldKernel } from "./sampleAndHold";
+import { clockKernel } from "./clock";
+import { sequencerKernel } from "./sequencer";
 
 export interface ModuleDSP {
   slug: string; // must exist in seed/generic_modules.json
@@ -31,6 +33,11 @@ export interface ModuleDSP {
   audioOutput?: {
     channels: 1 | 2;
   };
+
+  // When true, the kernel's state carries a numeric `step` field that the
+  // Interpreter reports to the UI (sequencer current-step indicator). The
+  // worklet forwards it on a throttled channel; it never affects DSP.
+  reportsStep?: boolean;
 }
 
 export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
@@ -123,7 +130,11 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       inJacks: ["In", "1V/Oct", "Cut CV", "FM", "Res CV"],
       outJacks: ["LP", "BP", "HP"],
       params: {
-        Cutoff: { min: 20, max: 16000, default: 1000, curve: "exponential" },
+        // Default at the minimum so an untouched Cutoff knob — drawn fully
+        // counter-clockwise (the UI's unipolar rest position) — actually sounds
+        // closed: LP silent, BP passing lows, HP fully open. Anything above min
+        // would leave the audible cutoff out of sync with the knob until moved.
+        Cutoff: { min: 20, max: 16000, default: 20, curve: "exponential" },
         Res: { min: 0, max: 1, default: 0, curve: "linear" },
         "CV Amt": { min: -1, max: 1, default: 0, curve: "linear" },
         "Track Amt": { min: -1, max: 1, default: 0, curve: "linear" },
@@ -178,6 +189,53 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
         // Deferred (unread by the kernel — see sampleAndHold.ts header):
         // default 0 matches the current instantaneous (no-slew) behavior.
         Slew: { min: 0, max: 1, default: 0, curve: "linear" },
+      },
+    },
+  ],
+  [
+    "clock",
+    {
+      slug: "clock",
+      kernel: clockKernel,
+      // Deferred (declared in seed, not wired — see clock.ts header):
+      // `Ext Clk` input (external-clock sync) and `Swing` control (AP-12 non-goal).
+      inJacks: ["Run", "Rst"],
+      outJacks: ["Clk", "/2", "/4", "/8", "/16"],
+      params: {
+        Tempo: { min: 30, max: 300, default: 120, curve: "exponential" },
+      },
+    },
+  ],
+  [
+    "sequencer",
+    {
+      slug: "sequencer",
+      kernel: sequencerKernel,
+      reportsStep: true, // current step surfaced to the editor's step buttons
+      // Deferred (declared in seed, not wired — see sequencer.ts header):
+      // `Dir` (direction) and `Sel` (step-select) inputs.
+      inJacks: ["Clk", "Rst"],
+      outJacks: ["CV", "Gate"],
+      // Slot order MUST stay Len, CV 1..8, On 1..8 — the kernel indexes params
+      // positionally (LEN_IDX / CV_BASE / ON_BASE in sequencer.ts).
+      params: {
+        Len: { min: 1, max: 8, default: 8, curve: "linear" },
+        "CV 1": { min: 0, max: 2, default: 0, curve: "linear" },
+        "CV 2": { min: 0, max: 2, default: 0, curve: "linear" },
+        "CV 3": { min: 0, max: 2, default: 0, curve: "linear" },
+        "CV 4": { min: 0, max: 2, default: 0, curve: "linear" },
+        "CV 5": { min: 0, max: 2, default: 0, curve: "linear" },
+        "CV 6": { min: 0, max: 2, default: 0, curve: "linear" },
+        "CV 7": { min: 0, max: 2, default: 0, curve: "linear" },
+        "CV 8": { min: 0, max: 2, default: 0, curve: "linear" },
+        "On 1": { min: 0, max: 1, default: 1, curve: "linear" },
+        "On 2": { min: 0, max: 1, default: 1, curve: "linear" },
+        "On 3": { min: 0, max: 1, default: 1, curve: "linear" },
+        "On 4": { min: 0, max: 1, default: 1, curve: "linear" },
+        "On 5": { min: 0, max: 1, default: 1, curve: "linear" },
+        "On 6": { min: 0, max: 1, default: 1, curve: "linear" },
+        "On 7": { min: 0, max: 1, default: 1, curve: "linear" },
+        "On 8": { min: 0, max: 1, default: 1, curve: "linear" },
       },
     },
   ],

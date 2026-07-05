@@ -16,6 +16,8 @@ import { envelopeGeneratorKernel } from "./envelopeGenerator";
 import { lfoKernel } from "./lfo";
 import { noiseSourceKernel } from "./noiseSource";
 import { sampleAndHoldKernel } from "./sampleAndHold";
+import { clockKernel } from "./clock";
+import { sequencerKernel } from "./sequencer";
 import { toyGainKernel, toySineKernel } from "../engine/testKernels";
 
 // --- Seed-integrity validator -----------------------------------------------
@@ -25,12 +27,18 @@ import { toyGainKernel, toySineKernel } from "../engine/testKernels";
 // a seeded control name. The real registry is empty until AP-5, so the
 // mechanism is proven below with valid and deliberately-broken fixtures.
 
+// A seed jack is either a bare string (ungrouped) or an object with a name —
+// both shapes are accepted by internal/api/seed/loader.go's SeedJack.UnmarshalJSON.
+type SeedJack = string | { name: string };
+
 interface SeedModule {
   slug: string;
-  inputs: { name: string }[];
-  outputs: { name: string }[];
+  inputs: SeedJack[];
+  outputs: SeedJack[];
   controls: { name: string; count?: number }[];
 }
+
+const jackName = (j: SeedJack): string => (typeof j === "string" ? j : j.name);
 
 const seed = JSON.parse(
   readFileSync(new URL("../../../../seed/generic_modules.json", import.meta.url), "utf-8"),
@@ -41,8 +49,8 @@ function validateEntryAgainstSeed(entry: ModuleDSP, seedModules: SeedModule[]): 
   if (!seeded) return [`unknown slug "${entry.slug}"`];
 
   const errors: string[] = [];
-  const inputs = new Set(seeded.inputs.map((j) => j.name));
-  const outputs = new Set(seeded.outputs.map((j) => j.name));
+  const inputs = new Set(seeded.inputs.map(jackName));
+  const outputs = new Set(seeded.outputs.map(jackName));
   // Expand counted controls to their "{name} {n}" (1-based) DB names,
   // matching the contractual expansion in internal/api/seed/loader.go.
   // Go expands any non-nil count (including count=1); nil count uses bare name.
@@ -231,8 +239,8 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the eleven AP-11 entries (size 11)", () => {
-    expect(registry.size).toBe(11);
+  it("has exactly the thirteen AP-12 entries (size 13)", () => {
+    expect(registry.size).toBe(13);
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -245,6 +253,8 @@ describe("production registry", () => {
       "lfo",
       "noise-source",
       "sample-and-hold",
+      "clock",
+      "sequencer",
     ]) {
       expect(registry.has(slug)).toBe(true);
     }
@@ -278,6 +288,11 @@ describe("production registry", () => {
     expect(registry.get("filter")?.kernel).toBe(filterKernel);
   });
 
+  it("filter Cutoff defaults to its minimum so an untouched knob (fully left) sounds closed", () => {
+    const cutoff = registry.get("filter")?.params.Cutoff;
+    expect(cutoff?.default).toBe(cutoff?.min);
+  });
+
   it("envelope-generator entry uses the canonical envelopeGeneratorKernel", () => {
     expect(registry.get("envelope-generator")?.kernel).toBe(envelopeGeneratorKernel);
   });
@@ -292,6 +307,14 @@ describe("production registry", () => {
 
   it("sample-and-hold entry uses the canonical sampleAndHoldKernel", () => {
     expect(registry.get("sample-and-hold")?.kernel).toBe(sampleAndHoldKernel);
+  });
+
+  it("clock entry uses the canonical clockKernel", () => {
+    expect(registry.get("clock")?.kernel).toBe(clockKernel);
+  });
+
+  it("sequencer entry uses the canonical sequencerKernel", () => {
+    expect(registry.get("sequencer")?.kernel).toBe(sequencerKernel);
   });
 
   it("does not contain the deferred noise-random slug", () => {
@@ -309,7 +332,7 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for all eleven AP-11 playable slugs", () => {
+  it("returns true for all thirteen AP-12 playable slugs", () => {
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -322,6 +345,8 @@ describe("isPlayable", () => {
       "lfo",
       "noise-source",
       "sample-and-hold",
+      "clock",
+      "sequencer",
     ]) {
       expect(isPlayable(slug)).toBe(true);
     }

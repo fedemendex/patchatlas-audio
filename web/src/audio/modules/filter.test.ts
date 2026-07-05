@@ -92,6 +92,20 @@ describe("filterKernel — tracer bullet", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Default (minimum) cutoff — an untouched filter, drawn fully left, is closed
+// ---------------------------------------------------------------------------
+
+describe("filterKernel — default minimum cutoff is closed", () => {
+  it("at 20 Hz cutoff a 1 kHz tone is silenced on LP and passed on HP", () => {
+    const inputRms = AUDIO_NORM / Math.SQRT2; // rms of the ±AUDIO_NORM drive
+    const { lp, bp, hp } = probeSteadySine({ cutoffHz: 20, res: 0, freqHz: 1000 });
+    expect(lp).toBeLessThan(inputRms * 0.05); // LP essentially closed
+    expect(hp).toBeGreaterThan(inputRms * 0.7); // HP fully open
+    expect(bp).toBeLessThan(hp); // BP only opens near the low corner
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Output writing
 // ---------------------------------------------------------------------------
 
