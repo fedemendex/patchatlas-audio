@@ -88,14 +88,8 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
         "EFM Amt": { min: -1, max: 1, default: 0, curve: "linear" },
         PW: { min: 0.05, max: 0.95, default: 0.5, curve: "linear" },
       },
-      // AP-6 ships Sine only; Saw/Pulse/Tri/Sub are explicit silence until a
-      // PolyBLEP follow-up. Sync (hard-sync) and PWM only become meaningful with
-      // the deferred waves, and PW likewise drives the not-yet-implemented Pulse.
-      preview: {
-        silentOutputs: ["Saw", "Pulse", "Tri", "Sub"],
-        ignoredInputs: ["Sync", "PWM"],
-        ignoredControls: ["PW"],
-      },
+      // Fully previewed: Sine, plus PolyBLEP Saw/Pulse/Sub, naive Tri, PWM/PW
+      // duty control, and hard-sync on the Sync input (see oscillator.ts).
     },
   ],
   [

@@ -450,14 +450,6 @@ describe("preview capability metadata", () => {
     ]);
   });
 
-  it("declares the oscillator's silent waves, ignored sync/pwm, and ignored PW", () => {
-    expect(registry.get("oscillator")?.preview).toEqual({
-      silentOutputs: ["Saw", "Pulse", "Tri", "Sub"],
-      ignoredInputs: ["Sync", "PWM"],
-      ignoredControls: ["PW"],
-    });
-  });
-
   it("declares noise-source's silent Red/Blue outputs", () => {
     expect(registry.get("noise-source")?.preview).toEqual({ silentOutputs: ["Red", "Blue"] });
   });
@@ -478,7 +470,7 @@ describe("preview capability metadata", () => {
   });
 
   it("leaves fully-previewed modules without a preview block", () => {
-    for (const slug of ["audio-output", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo"]) {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo"]) {
       expect(registry.get(slug)?.preview).toBeUndefined();
     }
   });

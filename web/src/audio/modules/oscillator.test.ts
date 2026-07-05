@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 import { oscillatorKernel } from "./oscillator";
 import { registry, isPlayable } from "./registry";
 import { Interpreter } from "../engine/interpreter";
-import { BLOCK_FRAMES, C4_HZ, LINEAR_FM_HZ_PER_VOLT } from "../engine/units";
+import { AUDIO_NORM, BLOCK_FRAMES, C4_HZ, GATE_HIGH_V, LINEAR_FM_HZ_PER_VOLT } from "../engine/units";
 import type { EngineGraph } from "../engine/graph";
 
 const SR = 48000;
@@ -28,23 +28,51 @@ function sineBuf(len: number, hz: number, amp: number): Float32Array {
 }
 
 // Renders the kernel directly (init + process) and returns the full-length
-// Sine output. `insFull` are per-input full-length buffers (or null =
-// unpatched), sliced per block via subarray.
-function renderSine(
+// buffer for output slot `outIndex`. `insFull` are per-input full-length
+// buffers (or null = unpatched), sliced per block via subarray.
+// Output slots: 0 Saw, 1 Pulse, 2 Tri, 3 Sine, 4 Sub.
+function renderOut(
+  outIndex: number,
   totalSamples: number,
   params: Float32Array,
   insFull: (Float32Array | null)[] = [null, null, null, null, null],
 ): Float32Array {
   const state = oscillatorKernel.init(SR);
   const outs = [0, 1, 2, 3, 4].map(() => new Float32Array(BLOCK_FRAMES));
-  const sine = new Float32Array(totalSamples);
+  const result = new Float32Array(totalSamples);
   for (let offset = 0; offset < totalSamples; offset += BLOCK_FRAMES) {
     const n = Math.min(BLOCK_FRAMES, totalSamples - offset);
     const ins = insFull.map((b) => (b ? b.subarray(offset, offset + n) : null));
     oscillatorKernel.process(state, ins, outs, params, n);
-    sine.set(outs[3].subarray(0, n), offset);
+    result.set(outs[outIndex].subarray(0, n), offset);
   }
-  return sine;
+  return result;
+}
+
+// The Sine output (slot 3) — the reference wave most tests measure.
+function renderSine(
+  totalSamples: number,
+  params: Float32Array,
+  insFull: (Float32Array | null)[] = [null, null, null, null, null],
+): Float32Array {
+  return renderOut(3, totalSamples, params, insFull);
+}
+
+// Peak absolute value across a buffer.
+function maxAbs(buf: Float32Array): number {
+  let m = 0;
+  for (let i = 0; i < buf.length; i++) {
+    const a = Math.abs(buf[i]);
+    if (a > m) m = a;
+  }
+  return m;
+}
+
+// Fraction of samples strictly above 0 V — a pulse's measured duty cycle.
+function dutyCycle(buf: Float32Array): number {
+  let high = 0;
+  for (let i = 0; i < buf.length; i++) if (buf[i] > 0) high++;
+  return high / buf.length;
 }
 
 // Frequency estimate from upward zero crossings, measured first-to-last
@@ -442,24 +470,183 @@ describe("unpatched inputs and output writing", () => {
     }
   });
 
-  it("deferred waves (Saw, Pulse, Tri, Sub) are explicit silence", () => {
-    const state = oscillatorKernel.init(SR);
-    const outs = [0, 1, 2, 3, 4].map(() => new Float32Array(BLOCK_FRAMES).fill(1));
-    oscillatorKernel.process(
-      state,
-      [null, null, null, null, null],
-      outs,
-      defaultParams(),
-      BLOCK_FRAMES,
-    );
-    const silence = new Float32Array(BLOCK_FRAMES);
-    expect(outs[0]).toEqual(silence); // Saw
-    expect(outs[1]).toEqual(silence); // Pulse
-    expect(outs[2]).toEqual(silence); // Tri
-    expect(outs[4]).toEqual(silence); // Sub
-    // Sine is live.
-    let sineEnergy = 0;
-    for (let i = 0; i < BLOCK_FRAMES; i++) sineEnergy += outs[3][i] * outs[3][i];
-    expect(sineEnergy).toBeGreaterThan(0);
+  it("every declared output carries signal at default params (no silent waves)", () => {
+    // A full second so even the Sub (one octave down) completes many cycles.
+    for (const outIndex of [0, 1, 2, 3, 4]) {
+      const buf = renderOut(outIndex, SR, defaultParams());
+      expect(maxAbs(buf)).toBeGreaterThan(1); // volts — clearly non-silent
+    }
+  });
+});
+
+// ── 9. Waveform outputs (Saw, Pulse, Tri, Sub) ────────────────────────────────
+
+// Output slots: 0 Saw, 1 Pulse, 2 Tri, 3 Sine, 4 Sub. A band-limited wave may
+// overshoot ±AUDIO_NORM slightly at edges; ±3·AUDIO_NORM is a generous ceiling
+// that still catches a runaway.
+const SAW = 0;
+const PULSE = 1;
+const TRI = 2;
+const SUB = 4;
+
+describe("waveform outputs", () => {
+  it("Saw is non-silent, bounded, finite, and runs at the pitch frequency", () => {
+    const saw = renderOut(SAW, SR, defaultParams());
+    expectAllFinite(saw);
+    expect(maxAbs(saw)).toBeGreaterThan(AUDIO_NORM * 0.5);
+    expect(maxAbs(saw)).toBeLessThan(AUDIO_NORM * 3);
+    expect(estimateHz(saw)).toBeCloseTo(C4_HZ, 0); // one up-crossing per cycle
+  });
+
+  it("Pulse is non-silent, bounded, finite, and runs at the pitch frequency", () => {
+    const pulse = renderOut(PULSE, SR, defaultParams());
+    expectAllFinite(pulse);
+    expect(maxAbs(pulse)).toBeGreaterThan(AUDIO_NORM * 0.5);
+    expect(maxAbs(pulse)).toBeLessThan(AUDIO_NORM * 3);
+    expect(estimateHz(pulse)).toBeCloseTo(C4_HZ, 0);
+  });
+
+  it("Tri is non-silent, bounded, finite, and runs at the pitch frequency", () => {
+    const tri = renderOut(TRI, SR, defaultParams());
+    expectAllFinite(tri);
+    expect(maxAbs(tri)).toBeGreaterThan(AUDIO_NORM * 0.5);
+    expect(maxAbs(tri)).toBeLessThan(AUDIO_NORM * 1.5);
+    expect(estimateHz(tri)).toBeCloseTo(C4_HZ, 0);
+  });
+
+  it("Sub is non-silent, bounded, finite, and runs one octave below the oscillator", () => {
+    const sub = renderOut(SUB, SR, defaultParams());
+    expectAllFinite(sub);
+    expect(maxAbs(sub)).toBeGreaterThan(AUDIO_NORM * 0.5);
+    expect(maxAbs(sub)).toBeLessThan(AUDIO_NORM * 3);
+    // Half the main frequency, within a tight band around C4/2.
+    const subHz = estimateHz(sub);
+    expect(subHz).toBeGreaterThan((C4_HZ / 2) * 0.98);
+    expect(subHz).toBeLessThan((C4_HZ / 2) * 1.02);
+  });
+
+  it("Sub tracks the oscillator: at +1 octave it is still exactly half", () => {
+    const params = defaultParams();
+    params[0] = 1; // Tune +1 octave → main 2·C4, Sub should be ≈ C4
+    const sub = renderOut(SUB, SR, params);
+    expect(estimateHz(sub)).toBeCloseTo(C4_HZ, 0);
+  });
+});
+
+// ── 10. Pulse width and PWM ───────────────────────────────────────────────────
+
+describe("pulse width and PWM", () => {
+  it("PW controls the duty cycle", () => {
+    const narrow = defaultParams();
+    narrow[4] = 0.25;
+    const wide = defaultParams();
+    wide[4] = 0.75;
+    expect(dutyCycle(renderOut(PULSE, SR, narrow))).toBeCloseTo(0.25, 1);
+    expect(dutyCycle(renderOut(PULSE, SR, wide))).toBeCloseTo(0.75, 1);
+  });
+
+  it("PWM input modulates the duty cycle around PW", () => {
+    // PW 0.5, PWM ±2.5 V → duty PW ± 0.25 (2.5 / (2·CV_BIPOLAR_MAX=10)).
+    const base = dutyCycle(renderOut(PULSE, SR, defaultParams()));
+    const up = dutyCycle(renderOut(PULSE, SR, defaultParams(), [null, null, null, null, constBuf(SR, 2.5)]));
+    const down = dutyCycle(renderOut(PULSE, SR, defaultParams(), [null, null, null, null, constBuf(SR, -2.5)]));
+    expect(base).toBeCloseTo(0.5, 1);
+    expect(up).toBeCloseTo(0.75, 1);
+    expect(down).toBeCloseTo(0.25, 1);
+    expect(up).toBeGreaterThan(base);
+    expect(down).toBeLessThan(base);
+  });
+
+  it("unpatched PWM leaves only the PW knob in effect", () => {
+    const p = defaultParams();
+    p[4] = 0.3;
+    const noPwm = dutyCycle(renderOut(PULSE, SR, p));
+    const nullPwm = dutyCycle(renderOut(PULSE, SR, p, [null, null, null, null, null]));
+    expect(noPwm).toBeCloseTo(0.3, 1);
+    expect(nullPwm).toBe(noPwm);
+  });
+
+  it("PW (and PWM excursions) clamp safely to 0.05..0.95", () => {
+    const tooHigh = defaultParams();
+    tooHigh[4] = 2; // past the spec max, passed directly
+    const tooLow = defaultParams();
+    tooLow[4] = -1; // past the spec min
+    const hi = renderOut(PULSE, SR, tooHigh);
+    const lo = renderOut(PULSE, SR, tooLow);
+    expectAllFinite(hi);
+    expectAllFinite(lo);
+    expect(dutyCycle(hi)).toBeCloseTo(0.95, 1);
+    expect(dutyCycle(lo)).toBeCloseTo(0.05, 1);
+
+    // PWM that would drive duty far out of range is also clamped, not wrapped.
+    const clampedByPwm = renderOut(PULSE, SR, defaultParams(), [null, null, null, null, constBuf(SR, 50)]);
+    expectAllFinite(clampedByPwm);
+    expect(dutyCycle(clampedByPwm)).toBeCloseTo(0.95, 1);
+  });
+
+  it("non-finite PW and PWM samples never produce NaN/Inf", () => {
+    const params = defaultParams();
+    params[4] = NaN; // PW falls back to 0.5
+    const badPwm = constBuf(SR, 0);
+    badPwm[100] = NaN;
+    badPwm[200] = Infinity;
+    badPwm[300] = -Infinity;
+    const pulse = renderOut(PULSE, SR, params, [null, null, null, null, badPwm]);
+    expectAllFinite(pulse);
+    expect(dutyCycle(pulse)).toBeCloseTo(0.5, 1); // default PW, bad samples read 0 V
+  });
+});
+
+// ── 11. Hard sync ─────────────────────────────────────────────────────────────
+
+describe("hard sync", () => {
+  // A rising edge on Sync (slot 3) resets phase to 0 *before* the edge sample
+  // is written. With default params (no modulation) the increment is constant,
+  // so after a reset at index E the Sine reads sin(2π · j · inc) for j ≥ 0.
+  const INC = C4_HZ / SR;
+
+  it("a rising edge resets phase deterministically (reset-before-write)", () => {
+    const E = 500;
+    const sync = new Float32Array(SR); // low everywhere…
+    for (let i = E; i < E + 50; i++) sync[i] = GATE_HIGH_V; // …a high plateau from E
+    const sine = renderSine(SR, defaultParams(), [null, null, null, sync, null]);
+    expectAllFinite(sine);
+    // The reset sample reads phase 0, then the wave restarts cleanly from there.
+    for (let j = 0; j < 20; j++) {
+      expect(sine[E + j]).toBeCloseTo(Math.sin(2 * Math.PI * j * INC) * AUDIO_NORM, 3);
+    }
+  });
+
+  it("a sustained high does not retrigger until the input re-arms", () => {
+    const E = 500;
+    const sync = new Float32Array(SR);
+    for (let i = E; i < SR; i++) sync[i] = GATE_HIGH_V; // high for the rest of the render
+    const sine = renderSine(SR, defaultParams(), [null, null, null, sync, null]);
+    // If it re-reset every high sample the phase would be pinned and the tail
+    // would be silent; instead it free-runs at C4 after the single reset.
+    const tail = sine.subarray(E + BLOCK_FRAMES);
+    expect(maxAbs(tail)).toBeGreaterThan(AUDIO_NORM * 0.5);
+    expect(estimateHz(tail)).toBeCloseTo(C4_HZ, 0);
+  });
+
+  it("re-arms after going low, so a second rising edge resets again", () => {
+    const E1 = 300;
+    const E2 = 900;
+    const sync = new Float32Array(SR);
+    for (let i = E1; i < E1 + 20; i++) sync[i] = GATE_HIGH_V;
+    // Gap (low) between the two pulses lets the Schmitt trigger re-arm.
+    for (let i = E2; i < E2 + 20; i++) sync[i] = GATE_HIGH_V;
+    const sine = renderSine(SR, defaultParams(), [null, null, null, sync, null]);
+    // Both edges restart the wave from phase 0.
+    for (let j = 0; j < 10; j++) {
+      expect(sine[E1 + j]).toBeCloseTo(Math.sin(2 * Math.PI * j * INC) * AUDIO_NORM, 3);
+      expect(sine[E2 + j]).toBeCloseTo(Math.sin(2 * Math.PI * j * INC) * AUDIO_NORM, 3);
+    }
+  });
+
+  it("unpatched Sync leaves the free-running wave untouched", () => {
+    const withNull = renderSine(SR, defaultParams(), [null, null, null, null, null]);
+    const plain = renderSine(SR, defaultParams());
+    expect(withNull).toEqual(plain);
   });
 });

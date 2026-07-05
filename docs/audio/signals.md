@@ -60,6 +60,31 @@ Linear FM adds `FM input volts × FM Amt × LINEAR_FM_HZ_PER_VOLT` to the oscill
 frequency in Hz (`LINEAR_FM_HZ_PER_VOLT` = 100 — v1 educational scaling, not
 hardware-accurate). Frequency clamps at 0 Hz: no negative/through-zero FM in v1.
 
+## Oscillator waveforms
+
+The oscillator writes five simultaneous shape outputs, all ±5 V nominal audio
+(`AUDIO_NORM`):
+
+- **`Sine`** — the reference phase-accumulator sine.
+- **`Saw`** — rising ramp, band-limited with a 2-sample PolyBLEP at the wrap.
+- **`Pulse`** — ±1 square at duty `pw`, PolyBLEP-corrected at both edges. `pw` is
+  the `PW` control plus the `PWM` input, clamped to **0.05…0.95**.
+- **`Tri`** — naive triangle, phase-aligned with `Sine`. Its harmonics fall off
+  ~1/n², so aliasing stays well below the fundamental at normal pitch; no BLEP is
+  applied — a documented educational-quality trade-off (no oversampling/wavetables).
+- **`Sub`** — a PolyBLEP square one octave below the main oscillator (50 % duty on
+  a half-rate phase), tracking the oscillator frequency exactly.
+
+**PWM mapping**: `pulseWidth = clamp(PW + pwmVolts / (2·CV_BIPOLAR_MAX), 0.05, 0.95)`,
+so ±5 V of `PWM` sweeps the duty ±0.5 around the knob before the clamp. A non-finite
+`PWM` sample reads as 0 V; an unpatched `PWM` leaves only the `PW` knob in effect.
+
+**Sync** (hard sync): a rising edge on `Sync` (standard Schmitt thresholds) resets
+both the main and sub phases to 0 **before** the sample at that edge is written, so
+the reset sample reads phase 0 for every wave (the accumulator otherwise advances
+before writing). Hard sync is a genuine discontinuity that PolyBLEP does not
+correct — band-limited sync is a non-goal in v1.
+
 ## Modulation sources
 
 The envelope generator's `Env` output is unipolar 0 → 10 V; its `Inv` output is the
