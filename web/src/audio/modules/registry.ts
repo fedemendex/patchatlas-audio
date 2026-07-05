@@ -213,14 +213,10 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       inJacks: ["In", "Trig"],
       outJacks: ["S&H", "T&H"],
       params: {
-        // Deferred (unread by the kernel — see sampleAndHold.ts header):
-        // default 0 matches the current instantaneous (no-slew) behavior.
+        // Slew is read by the kernel, which maps this raw 0..1 knob value
+        // exponentially onto a time constant in-kernel (see sampleAndHold.ts
+        // header); default 0 matches the original instantaneous behavior.
         Slew: { min: 0, max: 1, default: 0, curve: "linear" },
-      },
-      // Slew is declared (so the seed-integrity test passes) but unread: S&H/T&H
-      // transitions are instantaneous in AP-11, matching a Slew=0 reading.
-      preview: {
-        ignoredControls: ["Slew"],
       },
     },
   ],

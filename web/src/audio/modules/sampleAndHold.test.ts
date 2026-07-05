@@ -34,6 +34,7 @@ function render(opts: {
   totalSamples: number;
   inAt: (sample: number) => number;
   trigAt: (sample: number) => number;
+  slew?: number | ((sample: number) => number);
 }): { sh: Float32Array; th: Float32Array } {
   const sr = opts.sr ?? SR;
   const state = sampleAndHoldKernel.init(sr);
@@ -42,6 +43,10 @@ function render(opts: {
   const outs = makeOuts();
   const sh = new Float32Array(opts.totalSamples);
   const th = new Float32Array(opts.totalSamples);
+  const slewOpt = opts.slew;
+  const slewAt: (sample: number) => number =
+    typeof slewOpt === "function" ? slewOpt : (_i: number) => slewOpt ?? 0;
+  const params = new Float32Array(1);
 
   for (let start = 0; start < opts.totalSamples; start += BLOCK_FRAMES) {
     const n = Math.min(BLOCK_FRAMES, opts.totalSamples - start);
@@ -49,7 +54,8 @@ function render(opts: {
       inBuf[i] = opts.inAt(start + i);
       trigBuf[i] = opts.trigAt(start + i);
     }
-    sampleAndHoldKernel.process(state, [inBuf, trigBuf], outs, new Float32Array(1), n);
+    params[0] = slewAt(start);
+    sampleAndHoldKernel.process(state, [inBuf, trigBuf], outs, params, n);
     sh.set(outs[SH].subarray(0, n), start);
     th.set(outs[TH].subarray(0, n), start);
   }
@@ -315,6 +321,106 @@ describe("sampleAndHoldKernel — T&H tracks while high, holds while low", () =>
     });
     const frozen = th[149];
     for (let i = 150; i < 300; i++) expect(th[i]).toBe(frozen);
+  });
+});
+
+// ── Slew ───────────────────────────────────────────────────────────────────
+
+describe("sampleAndHoldKernel — Slew", () => {
+  it("Slew = 0 preserves the original instantaneous S&H behavior", () => {
+    const { sh } = render({
+      totalSamples: 2000,
+      slew: 0,
+      inAt: (i) => (i / 2000) * 10 - 5,
+      trigAt: (i) => (i === 500 ? CV_BIPOLAR_MAX : 0),
+    });
+    const target = (500 / 2000) * 10 - 5;
+    expect(sh[500]).toBe(target); // jumps exactly on the trigger sample
+    expect(sh[501]).toBe(target); // held exactly, no residual glide
+  });
+
+  it("Slew > 0 glides toward the sampled value instead of jumping", () => {
+    const { sh } = render({
+      totalSamples: 5000,
+      slew: 1, // max slew time
+      inAt: () => 5,
+      trigAt: (i) => (i === 100 ? CV_BIPOLAR_MAX : 0),
+    });
+    // Does not jump straight to the target at the trigger sample...
+    expect(sh[100]).toBeGreaterThan(0);
+    expect(sh[100]).toBeLessThan(5);
+    // ...but glides monotonically toward it with no overshoot.
+    for (let i = 101; i < 4999; i++) {
+      expect(sh[i]).toBeGreaterThanOrEqual(sh[i - 1]);
+      expect(sh[i]).toBeLessThanOrEqual(5);
+    }
+    expect(sh[4999]).toBeGreaterThan(sh[100]);
+  });
+
+  it("output remains finite through the glide and converges on the target", () => {
+    const { sh } = render({
+      totalSamples: 3000,
+      slew: 0.1, // short enough time constant to fully settle in 3000 samples
+      inAt: () => -5,
+      trigAt: (i) => (i === 0 ? CV_BIPOLAR_MAX : 0),
+    });
+    for (let i = 0; i < 3000; i++) expect(Number.isFinite(sh[i])).toBe(true);
+    expect(sh[2999]).toBeCloseTo(-5, 3);
+  });
+
+  it("holds the target stable between triggers once the glide has settled", () => {
+    const { sh } = render({
+      totalSamples: 6000,
+      slew: 0.05, // short time constant: fully settles well within one segment
+      inAt: (i) => (i < 3000 ? 2 : 7),
+      trigAt: (i) => (i === 0 || i === 3000 ? CV_BIPOLAR_MAX : 0),
+    });
+    // Deep into the second segment the glide has long settled; two far-apart
+    // samples in the same segment should read the same converged value.
+    expect(sh[5500]).toBeCloseTo(sh[5999], 6);
+  });
+
+  it("T&H glides while tracking and continues gliding to the frozen target after Trig drops", () => {
+    const { th } = render({
+      totalSamples: 400,
+      slew: 0.5,
+      inAt: (i) => (i >= 50 && i < 150 ? 5 : 0),
+      trigAt: (i) => (i >= 50 && i < 150 ? CV_BIPOLAR_MAX : 0),
+    });
+    // Lags behind the tracked input rather than matching it exactly.
+    expect(th[60]).toBeGreaterThan(0);
+    expect(th[60]).toBeLessThan(5);
+    // After the falling edge (Trig low) it keeps gliding toward the frozen
+    // target (5 V, the last tracked input) — monotonically, no overshoot.
+    for (let i = 151; i < 400; i++) {
+      expect(th[i]).toBeGreaterThanOrEqual(th[i - 1]);
+      expect(th[i]).toBeLessThanOrEqual(5);
+    }
+    expect(th[399]).toBeGreaterThan(th[150]);
+  });
+
+  it("non-finite Slew falls back to instantaneous (bypassed) behavior", () => {
+    const { sh } = render({
+      totalSamples: 200,
+      slew: NaN,
+      inAt: () => 3,
+      trigAt: (i) => (i === 50 ? CV_BIPOLAR_MAX : 0),
+    });
+    expect(sh[50]).toBe(3);
+    expect(sh[199]).toBe(3);
+  });
+
+  it("non-finite Slew (Infinity) also falls back safely and stays finite", () => {
+    const { sh, th } = render({
+      totalSamples: 1000,
+      slew: Infinity,
+      inAt: (i) => (i % 13 === 0 ? NaN : i - 500),
+      trigAt: (i) => (i % 40 === 0 ? CV_BIPOLAR_MAX : 0),
+    });
+    for (let i = 0; i < 1000; i++) {
+      expect(Number.isFinite(sh[i])).toBe(true);
+      expect(Number.isFinite(th[i])).toBe(true);
+    }
   });
 });
 

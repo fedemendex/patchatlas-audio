@@ -454,10 +454,6 @@ describe("preview capability metadata", () => {
     expect(registry.get("noise-source")?.preview).toEqual({ silentOutputs: ["Red", "Blue"] });
   });
 
-  it("declares sample-and-hold's ignored Slew control", () => {
-    expect(registry.get("sample-and-hold")?.preview).toEqual({ ignoredControls: ["Slew"] });
-  });
-
   it("declares clock's deferred Ext Clk jack and Swing control", () => {
     expect(registry.get("clock")?.preview).toEqual({
       deferredJacks: ["Ext Clk"],
@@ -470,7 +466,7 @@ describe("preview capability metadata", () => {
   });
 
   it("leaves fully-previewed modules without a preview block", () => {
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo"]) {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo", "sample-and-hold"]) {
       expect(registry.get(slug)?.preview).toBeUndefined();
     }
   });

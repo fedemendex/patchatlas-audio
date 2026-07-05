@@ -98,7 +98,11 @@ The noise source's `White` output is bipolar ±5 V uniform noise (expected RMS
 `CV_BIPOLAR_MAX / √3` ≈ 2.886 V); `Pink` is a small one-pole-sum approximation of the same
 noise, not exact 1/f. `Sample & Hold`'s `Trig` input uses the standard Schmitt gate
 thresholds; the trigger sample itself already carries the newly sampled value (sampling
-happens before the output is written, never one sample later).
+happens before the output is written, never one sample later). Its `Slew` control smooths
+both the `S&H` and `T&H` outputs toward their sampled/tracked target with a one-pole
+follower (`out += (target − out) · coeff`, never overshooting); the raw 0..1 knob maps
+exponentially onto a 0.001–2 s time constant, and 0 (or a non-finite reading) bypasses the
+follower for the original instantaneous behavior.
 
 ## Timing
 
