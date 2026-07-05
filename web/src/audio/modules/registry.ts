@@ -243,16 +243,12 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       slug: "sequencer",
       kernel: sequencerKernel,
       reportsStep: true, // current step surfaced to the editor's step buttons
-      // Deferred (declared in seed, not wired — see sequencer.ts header):
-      // `Dir` (direction) and `Sel` (step-select) inputs.
-      inJacks: ["Clk", "Rst"],
+      // Fully previewed: Dir (direction, sampled on the clock edge) and Sel
+      // (step-select address CV, sampled on the clock edge) are both wired —
+      // see sequencer.ts header for semantics and priority (Sel overrides
+      // Dir/first-edge whenever patched).
+      inJacks: ["Clk", "Rst", "Dir", "Sel"],
       outJacks: ["CV", "Gate"],
-      // Dir (direction) and Sel (step-select) are in the seed but not wired:
-      // forward-only stepping is the AP-12 scope. Cables into them are dropped
-      // by the compiler.
-      preview: {
-        deferredJacks: ["Dir", "Sel"],
-      },
       // Slot order MUST stay Len, CV 1..8, On 1..8 — the kernel indexes params
       // positionally (LEN_IDX / CV_BASE / ON_BASE in sequencer.ts).
       params: {

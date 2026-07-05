@@ -146,14 +146,25 @@ timer under `web/src/audio`, in `useAudioEngine`, is a non-musical graph-rebuild
     as the parent tick source** (offbeats are not re-timed). Unpatched `Ext Clk` leaves the
     internal-tempo clock exactly as above.
 - **Sequencer** (`sequencer`): advances one step per `Clk` rising edge (standard Schmitt
-  thresholds); the first edge after init/reset latches step 0 (never an off-by-one to step 1).
-  Step CV comes from the stored `CV 1..8` controls, each mapped **0 → 2 V** (two octaves at
-  1 V/oct); CV changes on the edge sample and holds between edges. `Gate` is high for
-  `SEQUENCER_GATE_DUTY` = 0.5 of the measured previous clock period after each step, gated by
-  that step's `On` button (a disabled step is a rest: gate low, CV still updates); the first
-  edge (no measured period yet) uses a fixed `INITIAL_GATE_SECONDS` = 0.05 fallback. `Len`
-  (1 → 8) sets the wrap length. `Rst` rising edge returns to step 0. (Seed `Dir`/`Sel` inputs
-  are deferred.)
+  thresholds); the first edge after init/reset latches step 0 (never an off-by-one to step 1),
+  unless `Sel` is patched (see below). Step CV comes from the stored `CV 1..8` controls, each
+  mapped **0 → 2 V** (two octaves at 1 V/oct); CV changes on the edge sample and holds between
+  edges. `Gate` is high for `SEQUENCER_GATE_DUTY` = 0.5 of the measured previous clock period
+  after each step, gated by that step's `On` button (a disabled step is a rest: gate low, CV
+  still updates); the first edge (no measured period yet) uses a fixed `INITIAL_GATE_SECONDS`
+  = 0.05 fallback. `Len` (1 → 8) sets the wrap length. `Rst` rising edge returns to step 0.
+  - **`Dir`** (direction, sampled on the `Clk` edge, not continuously): unpatched `Dir`
+    preserves forward-only stepping exactly (bit-for-bit). When patched, a sample read
+    < `GATE_FIRE_THRESHOLD_V` (including non-finite) steps forward (`+1 mod Len`); a sample
+    ≥ `GATE_FIRE_THRESHOLD_V` steps backward (`-1 mod Len`). `Dir` only affects ordinary
+    advancing edges — it has no effect on the first-edge latch and is ignored whenever `Sel`
+    is patched.
+  - **`Sel`** (external step-select address CV, sampled on the `Clk` edge): when patched, `Sel`
+    takes priority over `Dir` and the first-edge latch — every clock edge, including the
+    first, sets the step directly from `clamp(floor(selVolts / CV_UNIPOLAR_MAX * Len), 0,
+    Len - 1)`, so 0 → 10 V spans the currently active `Len` steps. A non-finite `Sel` sample
+    reads as 0 V (step 0); negative `Sel` clamps to step 0; `Sel` ≥ 10 V clamps to the final
+    active step. Unpatched `Sel` preserves the clocked `Dir`/forward-only behavior exactly.
 
 ## Jacks
 

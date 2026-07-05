@@ -45,12 +45,16 @@ function renderSeq(opts: {
   params: Float32Array;
   clkAt?: (sample: number) => number;
   rstAt?: (sample: number) => number;
+  dirAt?: (sample: number) => number;
+  selAt?: (sample: number) => number;
 }): { cv: Float32Array; gate: Float32Array } {
   const sr = opts.sr ?? SR;
   const state = sequencerKernel.init(sr);
   const outs = makeOuts();
   const clkBuf = opts.clkAt ? new Float32Array(BLOCK_FRAMES) : null;
   const rstBuf = opts.rstAt ? new Float32Array(BLOCK_FRAMES) : null;
+  const dirBuf = opts.dirAt ? new Float32Array(BLOCK_FRAMES) : null;
+  const selBuf = opts.selAt ? new Float32Array(BLOCK_FRAMES) : null;
   const cv = new Float32Array(opts.totalSamples);
   const gate = new Float32Array(opts.totalSamples);
   for (let start = 0; start < opts.totalSamples; start += BLOCK_FRAMES) {
@@ -58,8 +62,10 @@ function renderSeq(opts: {
     for (let i = 0; i < n; i++) {
       if (clkBuf && opts.clkAt) clkBuf[i] = opts.clkAt(start + i);
       if (rstBuf && opts.rstAt) rstBuf[i] = opts.rstAt(start + i);
+      if (dirBuf && opts.dirAt) dirBuf[i] = opts.dirAt(start + i);
+      if (selBuf && opts.selAt) selBuf[i] = opts.selAt(start + i);
     }
-    sequencerKernel.process(state, [clkBuf, rstBuf], outs, opts.params, n);
+    sequencerKernel.process(state, [clkBuf, rstBuf, dirBuf, selBuf], outs, opts.params, n);
     cv.set(outs[CV].subarray(0, n), start);
     gate.set(outs[GATE].subarray(0, n), start);
   }
@@ -90,10 +96,10 @@ function countGateRises(gate: Float32Array): number {
 // ── 1. Registry / seed ───────────────────────────────────────────────────────
 
 describe("sequencer registry entry", () => {
-  it("matches the seed: Clk/Rst inputs, CV/Gate outputs, Len + CV 1..8 + On 1..8", () => {
+  it("matches the seed: Clk/Rst/Dir/Sel inputs, CV/Gate outputs, Len + CV 1..8 + On 1..8", () => {
     const entry = registry.get("sequencer");
     expect(entry).toBeDefined();
-    expect(entry?.inJacks).toEqual(["Clk", "Rst"]);
+    expect(entry?.inJacks).toEqual(["Clk", "Rst", "Dir", "Sel"]);
     expect(entry?.outJacks).toEqual(["CV", "Gate"]);
     expect(Object.keys(entry?.params ?? {})).toEqual([
       "Len",
@@ -104,6 +110,10 @@ describe("sequencer registry entry", () => {
 
   it("is playable", () => {
     expect(isPlayable("sequencer")).toBe(true);
+  });
+
+  it("is fully previewed (no preview block) now that Dir/Sel are wired", () => {
+    expect(registry.get("sequencer")?.preview).toBeUndefined();
   });
 
   it("uses the canonical sequencerKernel (identity)", () => {
@@ -200,6 +210,237 @@ describe("sequencerKernel — step values wrap after Len steps", () => {
     for (let k = 1; k <= 6; k++) {
       expect(out[1000 * k]).toBeCloseTo(expected[k], 6);
     }
+  });
+});
+
+// ── 3b. Dir (direction) ───────────────────────────────────────────────────────
+
+describe("sequencerKernel — Dir input", () => {
+  const cv = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+  const pulseLen = 100;
+
+  it("unpatched Dir preserves old forward stepping exactly", () => {
+    const params = makeParams({ cv });
+    const { cv: out } = renderSeq({
+      totalSamples: 9000,
+      params,
+      clkAt: periodicClock(1000, 1000, pulseLen),
+    });
+    const expectedForEdge = (k: number) => cv[Math.max(0, k - 1)];
+    for (let k = 1; k <= 8; k++) {
+      expect(out[1000 * k]).toBeCloseTo(expectedForEdge(k), 6);
+    }
+  });
+
+  it("Dir low (explicit) steps forward, same as unpatched", () => {
+    const params = makeParams({ cv });
+    const { cv: out } = renderSeq({
+      totalSamples: 5000,
+      params,
+      clkAt: periodicClock(1000, 1000, pulseLen),
+      dirAt: () => 0,
+    });
+    // edge1 latch step0, edge2 step1, edge3 step2, edge4 step3.
+    expect(out[1000]).toBeCloseTo(cv[0], 6);
+    expect(out[2000]).toBeCloseTo(cv[1], 6);
+    expect(out[3000]).toBeCloseTo(cv[2], 6);
+    expect(out[4000]).toBeCloseTo(cv[3], 6);
+  });
+
+  it("Dir high steps backward and wraps correctly", () => {
+    const params = makeParams({ cv });
+    const { cv: out } = renderSeq({
+      totalSamples: 5000,
+      params,
+      clkAt: periodicClock(1000, 1000, pulseLen),
+      dirAt: () => GATE_HIGH_V,
+    });
+    // edge1 latches step0 (first-edge latch, direction irrelevant).
+    expect(out[1000]).toBeCloseTo(cv[0], 6);
+    // edge2 reverses to the last step (wraps 0 -> 7).
+    expect(out[2000]).toBeCloseTo(cv[7], 6);
+    // edge3 continues backward to step 6.
+    expect(out[3000]).toBeCloseTo(cv[6], 6);
+    // edge4 -> step 5.
+    expect(out[4000]).toBeCloseTo(cv[5], 6);
+  });
+
+  it("direction is sampled on the clock edge, not continuously mid-step", () => {
+    const params = makeParams({ cv });
+    // Dir is high only for a brief window well after the second edge — it
+    // must have no effect until the *next* edge samples it.
+    const { cv: out } = renderSeq({
+      totalSamples: 3500,
+      params,
+      clkAt: periodicClock(1000, 1000, pulseLen),
+      dirAt: (i) => (i >= 2500 && i < 2600 ? GATE_HIGH_V : 0),
+    });
+    // edge1 -> step0, edge2 (at 2000, Dir still low) -> step1 (forward).
+    expect(out[2000]).toBeCloseTo(cv[1], 6);
+    // Dir goes high mid-step (2500..2600): must not move the step early.
+    expect(out[2600]).toBeCloseTo(cv[1], 6);
+    // edge3 (at 3000) samples Dir high (having fallen back to 0 by then is
+    // irrelevant — only the edge-sample value matters, and Dir is already
+    // low again at 3000, so this edge steps forward to step2).
+    expect(out[3000]).toBeCloseTo(cv[2], 6);
+  });
+
+  it("reset + Dir behavior is deterministic: reset repositions to 0, subsequent reverse edges wrap correctly", () => {
+    const params = makeParams({ cv });
+    const { cv: out } = renderSeq({
+      totalSamples: 6000,
+      params,
+      clkAt: periodicClock(1000, 1000, pulseLen),
+      dirAt: () => GATE_HIGH_V,
+      rstAt: (i) => (i >= 2500 && i < 2600 ? GATE_HIGH_V : 0),
+    });
+    // edge1 (1000) latches step0. Reset at 2500 forces step0 and re-arms the
+    // first-edge latch. edge3 (3000) is now the post-reset first edge: it
+    // latches step0 regardless of Dir.
+    expect(out[3000]).toBeCloseTo(cv[0], 6);
+    // edge4 (4000) is the first real reverse step after reset: wraps to 7.
+    expect(out[4000]).toBeCloseTo(cv[7], 6);
+    // edge5 (5000) continues backward to 6.
+    expect(out[5000]).toBeCloseTo(cv[6], 6);
+  });
+
+  it("step telemetry (state.step) reports the actual current step in reverse mode", () => {
+    const state = sequencerKernel.init(SR);
+    const outs = makeOuts();
+    const params = makeParams({ cv });
+    const clkBuf = new Float32Array(BLOCK_FRAMES);
+    const dirBuf = new Float32Array(BLOCK_FRAMES);
+    dirBuf.fill(GATE_HIGH_V);
+    // First block: rising edge at sample 10 (first edge -> latches step 0).
+    clkBuf.fill(0);
+    for (let i = 10; i < BLOCK_FRAMES; i++) clkBuf[i] = GATE_HIGH_V;
+    sequencerKernel.process(state, [clkBuf, null, dirBuf, null], outs, params, BLOCK_FRAMES);
+    expect(state.step).toBe(0);
+    // Re-arm (low), then rising edge again -> reverse step to 7.
+    clkBuf.fill(0);
+    sequencerKernel.process(state, [clkBuf, null, dirBuf, null], outs, params, BLOCK_FRAMES);
+    clkBuf.fill(GATE_HIGH_V);
+    sequencerKernel.process(state, [clkBuf, null, dirBuf, null], outs, params, BLOCK_FRAMES);
+    expect(state.step).toBe(7);
+  });
+});
+
+// ── 3c. Sel (step-select) ─────────────────────────────────────────────────────
+
+describe("sequencerKernel — Sel input", () => {
+  const cv = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+  const pulseLen = 100;
+
+  it("unpatched Sel preserves old forward-stepping behavior exactly", () => {
+    const params = makeParams({ cv });
+    const { cv: out } = renderSeq({
+      totalSamples: 5000,
+      params,
+      clkAt: periodicClock(1000, 1000, pulseLen),
+    });
+    expect(out[1000]).toBeCloseTo(cv[0], 6);
+    expect(out[2000]).toBeCloseTo(cv[1], 6);
+    expect(out[3000]).toBeCloseTo(cv[2], 6);
+    expect(out[4000]).toBeCloseTo(cv[3], 6);
+  });
+
+  it("Sel 0 V selects step 0 (even on the first edge)", () => {
+    const params = makeParams({ cv });
+    const { cv: out } = renderSeq({
+      totalSamples: 1500,
+      params,
+      clkAt: periodicClock(1000, 1000, pulseLen),
+      selAt: () => 0,
+    });
+    expect(out[1000]).toBeCloseTo(cv[0], 6);
+  });
+
+  it("Sel mid-range values select the expected step", () => {
+    const params = makeParams({ cv }); // Len=8 (default), so stepCount = 8
+    // 5 V of 10 V spans half of 8 steps -> floor(5/10*8) = 4.
+    const { cv: out } = renderSeq({
+      totalSamples: 1500,
+      params,
+      clkAt: periodicClock(1000, 1000, pulseLen),
+      selAt: () => 5,
+    });
+    expect(out[1000]).toBeCloseTo(cv[4], 6);
+  });
+
+  it("Sel 10 V (full range) clamps to the final active step", () => {
+    const params = makeParams({ cv });
+    const { cv: out } = renderSeq({
+      totalSamples: 1500,
+      params,
+      clkAt: periodicClock(1000, 1000, pulseLen),
+      selAt: () => 10,
+    });
+    expect(out[1000]).toBeCloseTo(cv[7], 6);
+  });
+
+  it("negative Sel clamps to step 0", () => {
+    const params = makeParams({ cv });
+    const { cv: out } = renderSeq({
+      totalSamples: 1500,
+      params,
+      clkAt: periodicClock(1000, 1000, pulseLen),
+      selAt: () => -3,
+    });
+    expect(out[1000]).toBeCloseTo(cv[0], 6);
+  });
+
+  it("overrange Sel (beyond 10 V) clamps to the final active step", () => {
+    const params = makeParams({ cv });
+    const { cv: out } = renderSeq({
+      totalSamples: 1500,
+      params,
+      clkAt: periodicClock(1000, 1000, pulseLen),
+      selAt: () => 25,
+    });
+    expect(out[1000]).toBeCloseTo(cv[7], 6);
+  });
+
+  it("non-finite Sel is safe and reads as 0 V (selects step 0)", () => {
+    const params = makeParams({ cv });
+    const { cv: out, gate } = renderSeq({
+      totalSamples: 1500,
+      params,
+      clkAt: periodicClock(1000, 1000, pulseLen),
+      selAt: () => NaN,
+    });
+    expect(Number.isFinite(out[1000])).toBe(true);
+    expect(Number.isFinite(gate[1000])).toBe(true);
+    expect(out[1000]).toBeCloseTo(cv[0], 6);
+  });
+
+  it("Sel is sampled on the clock edge: changing Sel between clocks doesn't move the step until the next edge", () => {
+    const params = makeParams({ cv });
+    const { cv: out } = renderSeq({
+      totalSamples: 2500,
+      params,
+      clkAt: periodicClock(1000, 1000, pulseLen),
+      // Sel reads 0 V through the first edge, then jumps to 8 V shortly after.
+      selAt: (i) => (i < 1500 ? 0 : 8),
+    });
+    // edge1 (1000) samples Sel=0 -> step0.
+    expect(out[1000]).toBeCloseTo(cv[0], 6);
+    // Between edges the step must not change even though Sel changed at 1500.
+    expect(out[1600]).toBeCloseTo(cv[0], 6);
+    // edge2 (2000) samples the new Sel=8 -> floor(8/10*8)=6.
+    expect(out[2000]).toBeCloseTo(cv[6], 6);
+  });
+
+  it("step telemetry (state.step) reports the selected step", () => {
+    const state = sequencerKernel.init(SR);
+    const outs = makeOuts();
+    const params = makeParams({ cv });
+    const clkBuf = new Float32Array(BLOCK_FRAMES);
+    const selBuf = new Float32Array(BLOCK_FRAMES);
+    selBuf.fill(10); // final step
+    clkBuf.fill(0);
+    for (let i = 10; i < BLOCK_FRAMES; i++) clkBuf[i] = GATE_HIGH_V;
+    sequencerKernel.process(state, [clkBuf, null, null, selBuf], outs, params, BLOCK_FRAMES);
+    expect(state.step).toBe(7);
   });
 });
 
@@ -341,7 +582,7 @@ describe("sequencerKernel — safety", () => {
     for (const o of outs) o.fill(999);
     const n = 17;
     const params = makeParams({ cv: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8] });
-    sequencerKernel.process(state, [null, null], outs, params, n);
+    sequencerKernel.process(state, [null, null, null, null], outs, params, n);
     for (const o of outs) {
       for (let i = 0; i < n; i++) expect(o[i]).not.toBe(999);
       for (let i = n; i < BLOCK_FRAMES; i++) expect(o[i]).toBe(999);

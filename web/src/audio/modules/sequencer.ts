@@ -8,11 +8,9 @@
 // moves them: step voltages are exact, not smoothed.
 //
 // Advancement: on each Clk rising edge (Schmitt: fire >= GATE_FIRE_THRESHOLD_V,
-// re-arm below GATE_REARM_THRESHOLD_V) the step pointer advances by one and
-// wraps after `Len` steps. The FIRST edge after init or reset does not advance —
-// it latches step 0 — so the first note heard is always step 0 (a `firstEdge`
-// latch avoids the classic off-by-one). CV changes exactly on the edge sample
-// and is held between edges.
+// re-arm below GATE_REARM_THRESHOLD_V) the step pointer moves according to
+// `Sel`/`Dir` (see below) and wraps within `Len` steps. CV changes exactly on
+// the edge sample and is held between edges.
 //
 // Step CV mapping: each `CV n` control maps (in the registry ParamSpec, linear
 // 0..2, default 0) to a 0..2 V pitch range — two octaves above C4 at 1 V/oct.
@@ -28,25 +26,44 @@
 //
 // Reset (Rst, Schmitt rising edge): returns the pointer to step 0 and re-arms
 // the first-edge latch, so the next clock edge re-plays step 0 (restarting the
-// pattern). Reset repositions only; it does not itself fire a gate.
+// pattern) when `Sel` is unpatched. Reset repositions only; it does not itself
+// fire a gate.
+//
+// `Dir` (direction, sampled on the clock edge, not continuously): unpatched Dir
+// preserves the original forward-only behavior exactly (bit-for-bit). When
+// patched, Dir is read on the same sample as the clock edge: low (<
+// GATE_FIRE_THRESHOLD_V, including a non-finite sample) steps forward
+// (`+1 mod length`); high (>= GATE_FIRE_THRESHOLD_V) steps backward
+// (`-1 mod length`). Dir only affects the ordinary advancing edges — it has no
+// effect on the first-edge latch, and it is ignored entirely whenever `Sel` is
+// patched (see below). Dir needs no Schmitt hysteresis of its own: it is a
+// single-sample read at the instant of the (already-debounced) clock edge, not
+// an independently-tracked edge.
+//
+// `Sel` (external step-select / address CV, sampled on the clock edge): when
+// patched, Sel takes priority over Dir and the first-edge latch — *every*
+// clock edge, including the first after init/reset, sets the step directly
+// from the address `clamp(floor(selVolts / CV_UNIPOLAR_MAX * length), 0,
+// length - 1)` (0..10 V spans the currently active `Len` steps, matching the
+// range Dir/forward stepping wraps within). A non-finite Sel sample reads as
+// 0 V (step 0) for that edge; negative Sel clamps to step 0; Sel >= 10 V
+// clamps to the final active step. Unpatched Sel preserves the original
+// clocked Dir/forward-only behavior exactly.
 //
 // Unpatched Clk never advances; unpatched Rst never resets; non-finite Clk/Rst
 // samples read as 0 V (low) and are safe.
 //
 // Jack/param layout (registry declaration order):
-//   ins[0] = Clk   ins[1] = Rst
+//   ins[0] = Clk   ins[1] = Rst   ins[2] = Dir   ins[3] = Sel
 //   outs[0] = CV   outs[1] = Gate
 //   params: [ Len, CV 1..8, On 1..8 ]  (indexed positionally — see constants)
-//
-// Deferred (declared in the seed, intentionally not wired here — mirrors the
-// S&H Slew precedent): the seed's `Dir` (direction) and `Sel` (step-select)
-// inputs. Forward-only stepping is the AP-12 scope.
 
 import type { Kernel } from "../engine/kernel";
 import {
   GATE_HIGH_V,
   GATE_FIRE_THRESHOLD_V,
   GATE_REARM_THRESHOLD_V,
+  CV_UNIPOLAR_MAX,
 } from "../engine/units";
 
 // Param layout constants (must match the registry "sequencer" params order).
@@ -90,6 +107,8 @@ export const sequencerKernel: Kernel<SequencerState> = {
   process(state, ins, outs, params, n) {
     const inClk = ins[0];
     const inRst = ins[1];
+    const inDir = ins[2];
+    const inSel = ins[3];
     const outCV = outs[0];
     const outGate = outs[1];
 
@@ -137,10 +156,28 @@ export const sequencerKernel: Kernel<SequencerState> = {
       }
       if (!clkHigh && clkV >= GATE_FIRE_THRESHOLD_V) {
         clkHigh = true;
-        if (firstEdge) {
+        if (inSel !== null) {
+          // Sel patched: address the active step directly, on every edge
+          // (including the first) — takes priority over Dir and the
+          // first-edge latch.
+          let selV = inSel[i];
+          if (!Number.isFinite(selV)) selV = 0;
+          let idx = Math.floor((selV / CV_UNIPOLAR_MAX) * length);
+          if (idx < 0) idx = 0;
+          else if (idx > length - 1) idx = length - 1;
+          step = idx;
+          firstEdge = false;
+        } else if (firstEdge) {
           firstEdge = false; // latch step 0 (no advance)
         } else {
-          step = (step + 1) % length;
+          // Dir sampled on this edge: low (or unpatched/non-finite) steps
+          // forward, high steps backward. Both wrap within `length`.
+          let reverse = false;
+          if (inDir !== null) {
+            const dirV = inDir[i];
+            reverse = Number.isFinite(dirV) && dirV >= GATE_FIRE_THRESHOLD_V;
+          }
+          step = reverse ? (step - 1 + length) % length : (step + 1) % length;
         }
         // Gate length: measured duty, or the fixed fallback on the first edge.
         gateTail = hasPeriod ? Math.round(SEQUENCER_GATE_DUTY * sinceLastEdge) : initialGateSamples;

@@ -450,8 +450,10 @@ describe("preview capability metadata", () => {
     ]);
   });
 
-  it("declares sequencer's deferred Dir/Sel jacks", () => {
-    expect(registry.get("sequencer")?.preview).toEqual({ deferredJacks: ["Dir", "Sel"] });
+  it("sequencer is fully previewed — Dir/Sel wired, no preview block", () => {
+    const entry = registry.get("sequencer");
+    expect(entry?.inJacks).toEqual(["Clk", "Rst", "Dir", "Sel"]);
+    expect(entry?.preview).toBeUndefined();
   });
 
   it("clock is fully previewed — Ext Clk wired, Swing param present, no preview block", () => {
@@ -466,8 +468,14 @@ describe("preview capability metadata", () => {
   });
 
   it("leaves fully-previewed modules without a preview block", () => {
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo", "sample-and-hold", "clock", "noise-source"]) {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer"]) {
       expect(registry.get(slug)?.preview).toBeUndefined();
+    }
+  });
+
+  it("no registered module currently declares partial-preview metadata", () => {
+    for (const [, entry] of registry) {
+      expect(entry.preview).toBeUndefined();
     }
   });
 });
