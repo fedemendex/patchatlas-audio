@@ -8,6 +8,7 @@ import type { Module } from "../../lib/api";
 import type { PatchDraftDoc } from "../../patches/draft/patchDraft";
 import type { ModuleDSP } from "../modules/registry";
 import type { ParamSpec } from "./kernel";
+import { normalizedToEngineValue } from "./params";
 
 export interface EngineNode {
   instanceId: string;
@@ -42,15 +43,8 @@ function paramValue(spec: ParamSpec, raw: number | boolean | undefined): number 
   if (raw === undefined) return spec.default;
   const v = typeof raw === "boolean" ? (raw ? 1 : 0) : raw;
   if (!Number.isFinite(v)) return spec.default;
-  const t = Math.min(1, Math.max(0, v));
-  switch (spec.curve) {
-    case "linear":
-      return spec.min + t * (spec.max - spec.min);
-    case "exponential":
-      return spec.min * Math.pow(spec.max / spec.min, t);
-    case "positions":
-      return Math.min(spec.max, Math.max(spec.min, Math.round(v)));
-  }
+  // Curve mapping is shared with the UI's rest-position math — see params.ts.
+  return normalizedToEngineValue(spec, v);
 }
 
 function paramsFor(dsp: ModuleDSP, module: Module, controlValues: Record<string, number | boolean>): number[] {
