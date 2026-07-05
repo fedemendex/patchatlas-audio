@@ -108,6 +108,41 @@ follower (`out += (target − out) · coeff`, never overshooting); the raw 0..1 
 exponentially onto a 0.001–2 s time constant, and 0 (or a non-finite reading) bypasses the
 follower for the original instantaneous behavior.
 
+## Low pass gate
+
+The low pass gate (`low-pass-gate`) is Patchamama's generic educational preview model of a
+vactrol-driven coupled VCA + 2-pole lowpass — it is not modeled on, or claimed to match, any
+specific hardware LPG. A single follower state (`level`, 0 → 1, "openness") drives both stages:
+
+- **`CV`** is unipolar 0 → `CV_UNIPOLAR_MAX` V and sets the follower's *target*:
+  `cvOpen = clamp(CV / CV_UNIPOLAR_MAX, 0, 1)`. Unpatched/non-finite `CV` reads as 0 V (closed).
+- **`Strike`** is a Schmitt-gated (standard thresholds) rising-edge pluck: the rising edge snaps
+  `level` to 1 on that sample; a sustained high does not retrigger until `Strike` re-arms below
+  `GATE_REARM_THRESHOLD_V`. Non-finite `Strike` samples never fire.
+- Every other sample, `level` chases `cvOpen`: an instant rise if `cvOpen > level` (jumps exactly
+  to the target, never overshooting), otherwise an exponential decay at a fixed ~0.3 s time
+  constant. The seed has no Damp/Decay/Response control on this module, so the decay time is
+  fixed rather than knob-mapped.
+- Audio path: `amp = level²`, `cutoffHz = 40 + level² × 12000`, run through two cascaded one-pole
+  lowpass stages (12 dB/oct). The filter always runs regardless of `Mode`, so its state stays
+  continuous across a live mode switch.
+- **`Mode`** (seed switch, positions `VCA` / `LPG` / `Both`, default `Both`) selects which
+  combination becomes the output — Patchamama's generic preview semantics, not a claim to match
+  any specific hardware convention:
+  - `VCA`: amplitude gate only, `Out = In × amp`. The filter still runs every sample (so its
+    state stays live for a clean transition if `Mode` changes) but is never read for output, so
+    no lowpass coloration reaches `Out`.
+  - `LPG`: the actual low-pass-gate response, `Out = filtered × amp` — both the cutoff and the
+    output amplitude are driven by the same `level`, so closed (`level = 0`) is silent.
+  - `Both`: a parallel 50/50 blend of the VCA and LPG paths, `Out = 0.5 × amp × (In + filtered)` —
+    brighter than `LPG` alone (half the signal skips the filter) but still gated, since `amp`
+    multiplies the whole blend; closed is silent here too.
+  - A filter-only mode (cutoff modulated by `level` with no amplitude multiply) was deliberately
+    not offered: since a stable lowpass has unity gain at DC/low frequencies regardless of
+    cutoff, a filter-only "closed" state would still pass sustained or low-frequency input
+    through nearly unattenuated — it would not gate anything, contradicting what a low-pass
+    *gate* is for.
+
 ## Ring modulator
 
 The ring modulator (`ring-modulator`) is a DC-coupled bipolar multiplier: `Out = X * Y /

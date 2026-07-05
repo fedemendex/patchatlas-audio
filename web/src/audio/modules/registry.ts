@@ -20,6 +20,7 @@ import { sampleAndHoldKernel } from "./sampleAndHold";
 import { clockKernel } from "./clock";
 import { sequencerKernel } from "./sequencer";
 import { ringModKernel } from "./ringMod";
+import { lowPassGateKernel } from "./lowPassGate";
 
 export interface ModuleDSP {
   slug: string; // must exist in seed/generic_modules.json
@@ -283,6 +284,23 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       inJacks: ["X", "Y"],
       outJacks: ["Out"],
       params: {},
+    },
+  ],
+  [
+    "low-pass-gate",
+    {
+      slug: "low-pass-gate",
+      kernel: lowPassGateKernel,
+      // Vactrol-driven coupled VCA + 2-pole lowpass (see lowPassGate.ts). Mode
+      // selects VCA-only (amp only) / LPG (filtered * amp, the actual gate
+      // response) / Both (50/50 parallel blend of the VCA and LPG paths).
+      // Generic educational preview model, not a specific hardware clone;
+      // default is Both.
+      inJacks: ["In", "CV", "Strike"],
+      outJacks: ["Out"],
+      params: {
+        Mode: { min: 0, max: 2, default: 2, curve: "positions", positions: ["VCA", "LPG", "Both"] },
+      },
     },
   ],
 ]);

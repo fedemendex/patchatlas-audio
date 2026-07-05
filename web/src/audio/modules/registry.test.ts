@@ -19,6 +19,7 @@ import { sampleAndHoldKernel } from "./sampleAndHold";
 import { clockKernel } from "./clock";
 import { sequencerKernel } from "./sequencer";
 import { ringModKernel } from "./ringMod";
+import { lowPassGateKernel } from "./lowPassGate";
 import { toyGainKernel, toySineKernel } from "../engine/testKernels";
 
 // --- Seed-integrity validator -----------------------------------------------
@@ -282,8 +283,8 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the fourteen registered entries (size 14)", () => {
-    expect(registry.size).toBe(14);
+  it("has exactly the fifteen registered entries (size 15)", () => {
+    expect(registry.size).toBe(15);
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -299,6 +300,7 @@ describe("production registry", () => {
       "clock",
       "sequencer",
       "ring-modulator",
+      "low-pass-gate",
     ]) {
       expect(registry.has(slug)).toBe(true);
     }
@@ -363,6 +365,10 @@ describe("production registry", () => {
 
   it("ring-modulator entry uses the canonical ringModKernel", () => {
     expect(registry.get("ring-modulator")?.kernel).toBe(ringModKernel);
+  });
+
+  it("low-pass-gate entry uses the canonical lowPassGateKernel", () => {
+    expect(registry.get("low-pass-gate")?.kernel).toBe(lowPassGateKernel);
   });
 
   it("does not contain the deferred noise-random slug", () => {
@@ -474,7 +480,7 @@ describe("preview capability metadata", () => {
   });
 
   it("leaves fully-previewed modules without a preview block", () => {
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "ring-modulator"]) {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "ring-modulator", "low-pass-gate"]) {
       expect(registry.get(slug)?.preview).toBeUndefined();
     }
   });
@@ -491,7 +497,7 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for all fourteen registered playable slugs", () => {
+  it("returns true for all fifteen registered playable slugs", () => {
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -507,6 +513,7 @@ describe("isPlayable", () => {
       "clock",
       "sequencer",
       "ring-modulator",
+      "low-pass-gate",
     ]) {
       expect(isPlayable(slug)).toBe(true);
     }
