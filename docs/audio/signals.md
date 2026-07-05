@@ -108,6 +108,15 @@ follower (`out += (target − out) · coeff`, never overshooting); the raw 0..1 
 exponentially onto a 0.001–2 s time constant, and 0 (or a non-finite reading) bypasses the
 follower for the original instantaneous behavior.
 
+## Ring modulator
+
+The ring modulator (`ring-modulator`) is a DC-coupled bipolar multiplier: `Out = X * Y /
+CV_BIPOLAR_MAX`, so ±5 V on both inputs gives ±5 V out (`+5·+5→+5`, `+5·−5→−5`, `−5·−5→+5`),
+matching the audio/CV bipolar convention rather than a raw volt² product. An unpatched `X` or
+`Y` reads as 0 V (silence) — the seed has no internal carrier oscillator, so there is nothing
+to normal an unpatched input to. Non-finite input samples read as 0 V. No soft-clipping —
+`audio-output` owns final DAC limiting.
+
 ## Timing
 
 - **Sample rate**: taken from the environment (`AudioContext.sampleRate`) at kernel init.

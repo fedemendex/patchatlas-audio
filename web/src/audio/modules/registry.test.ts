@@ -18,6 +18,7 @@ import { noiseSourceKernel } from "./noiseSource";
 import { sampleAndHoldKernel } from "./sampleAndHold";
 import { clockKernel } from "./clock";
 import { sequencerKernel } from "./sequencer";
+import { ringModKernel } from "./ringMod";
 import { toyGainKernel, toySineKernel } from "../engine/testKernels";
 
 // --- Seed-integrity validator -----------------------------------------------
@@ -281,8 +282,8 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the thirteen AP-12 entries (size 13)", () => {
-    expect(registry.size).toBe(13);
+  it("has exactly the fourteen registered entries (size 14)", () => {
+    expect(registry.size).toBe(14);
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -297,6 +298,7 @@ describe("production registry", () => {
       "sample-and-hold",
       "clock",
       "sequencer",
+      "ring-modulator",
     ]) {
       expect(registry.has(slug)).toBe(true);
     }
@@ -357,6 +359,10 @@ describe("production registry", () => {
 
   it("sequencer entry uses the canonical sequencerKernel", () => {
     expect(registry.get("sequencer")?.kernel).toBe(sequencerKernel);
+  });
+
+  it("ring-modulator entry uses the canonical ringModKernel", () => {
+    expect(registry.get("ring-modulator")?.kernel).toBe(ringModKernel);
   });
 
   it("does not contain the deferred noise-random slug", () => {
@@ -468,7 +474,7 @@ describe("preview capability metadata", () => {
   });
 
   it("leaves fully-previewed modules without a preview block", () => {
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer"]) {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "ring-modulator"]) {
       expect(registry.get(slug)?.preview).toBeUndefined();
     }
   });
@@ -485,7 +491,7 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for all thirteen AP-12 playable slugs", () => {
+  it("returns true for all fourteen registered playable slugs", () => {
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -500,6 +506,7 @@ describe("isPlayable", () => {
       "sample-and-hold",
       "clock",
       "sequencer",
+      "ring-modulator",
     ]) {
       expect(isPlayable(slug)).toBe(true);
     }

@@ -19,6 +19,7 @@ import { noiseSourceKernel } from "./noiseSource";
 import { sampleAndHoldKernel } from "./sampleAndHold";
 import { clockKernel } from "./clock";
 import { sequencerKernel } from "./sequencer";
+import { ringModKernel } from "./ringMod";
 
 export interface ModuleDSP {
   slug: string; // must exist in seed/generic_modules.json
@@ -270,6 +271,18 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
         "On 7": { min: 0, max: 1, default: 1, curve: "linear" },
         "On 8": { min: 0, max: 1, default: 1, curve: "linear" },
       },
+    },
+  ],
+  [
+    "ring-modulator",
+    {
+      slug: "ring-modulator",
+      kernel: ringModKernel,
+      // DC-coupled bipolar multiplier: Out = X * Y / CV_BIPOLAR_MAX (see ringMod.ts).
+      // No controls in the seed; unpatched X or Y reads as 0 V (no internal carrier).
+      inJacks: ["X", "Y"],
+      outJacks: ["Out"],
+      params: {},
     },
   ],
 ]);
