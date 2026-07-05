@@ -38,6 +38,26 @@ export interface ModuleDSP {
   // Interpreter reports to the UI (sequencer current-step indicator). The
   // worklet forwards it on a throttled channel; it never affects DSP.
   reportsStep?: boolean;
+
+  // Preview capability metadata (AP-13). Seed NAMES of jacks/controls that are
+  // visible in the UI but produce no audible effect in the preview engine, so
+  // the UI can badge them and docs/audio/preview-coverage.md can enumerate them.
+  // A module with none of these fields is fully previewed. All names are
+  // validated against the seed in registry.test.ts. See preview-coverage.md for
+  // the taxonomy; the two mechanisms are:
+  //   - declared-but-unread: the jack/control IS in inJacks/outJacks/params
+  //     (silentOutputs / ignoredInputs / ignoredControls) — a cable/knob resolves
+  //     to a real slot the kernel never reads.
+  //   - deferred (seed-only): the jack/control is in the seed but absent from
+  //     inJacks/outJacks/params (deferredJacks / deferredControls) — the compiler
+  //     drops the connection and the control value is never passed.
+  preview?: {
+    silentOutputs?: string[]; // in outJacks; kernel writes silence every block
+    ignoredInputs?: string[]; // in inJacks; kernel never reads the slot
+    ignoredControls?: string[]; // in params; kernel never reads the slot
+    deferredJacks?: string[]; // seeded jack absent from inJacks/outJacks (dropped)
+    deferredControls?: string[]; // seeded control absent from params (never passed)
+  };
 }
 
 export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
@@ -67,6 +87,14 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
         "FM Amt": { min: -1, max: 1, default: 0, curve: "linear" },
         "EFM Amt": { min: -1, max: 1, default: 0, curve: "linear" },
         PW: { min: 0.05, max: 0.95, default: 0.5, curve: "linear" },
+      },
+      // AP-6 ships Sine only; Saw/Pulse/Tri/Sub are explicit silence until a
+      // PolyBLEP follow-up. Sync (hard-sync) and PWM only become meaningful with
+      // the deferred waves, and PW likewise drives the not-yet-implemented Pulse.
+      preview: {
+        silentOutputs: ["Saw", "Pulse", "Tri", "Sub"],
+        ignoredInputs: ["Sync", "PWM"],
+        ignoredControls: ["PW"],
       },
     },
   ],
@@ -176,6 +204,11 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       inJacks: [],
       outJacks: ["White", "Pink", "Red", "Blue"],
       params: {},
+      // AP-11 implements White + Pink; Red (integrated) and Blue (differentiated)
+      // noise coloring are deferred and write silence — see noiseSource.ts header.
+      preview: {
+        silentOutputs: ["Red", "Blue"],
+      },
     },
   ],
   [
@@ -189,6 +222,11 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
         // Deferred (unread by the kernel — see sampleAndHold.ts header):
         // default 0 matches the current instantaneous (no-slew) behavior.
         Slew: { min: 0, max: 1, default: 0, curve: "linear" },
+      },
+      // Slew is declared (so the seed-integrity test passes) but unread: S&H/T&H
+      // transitions are instantaneous in AP-11, matching a Slew=0 reading.
+      preview: {
+        ignoredControls: ["Slew"],
       },
     },
   ],
@@ -204,6 +242,13 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       params: {
         Tempo: { min: 30, max: 300, default: 120, curve: "exponential" },
       },
+      // Ext Clk (external-clock sync) and Swing are in the seed but not wired:
+      // internal-tempo generation is the AP-12 scope. A cable into Ext Clk is
+      // dropped by the compiler; the Swing knob value is never passed.
+      preview: {
+        deferredJacks: ["Ext Clk"],
+        deferredControls: ["Swing"],
+      },
     },
   ],
   [
@@ -216,6 +261,12 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       // `Dir` (direction) and `Sel` (step-select) inputs.
       inJacks: ["Clk", "Rst"],
       outJacks: ["CV", "Gate"],
+      // Dir (direction) and Sel (step-select) are in the seed but not wired:
+      // forward-only stepping is the AP-12 scope. Cables into them are dropped
+      // by the compiler.
+      preview: {
+        deferredJacks: ["Dir", "Sel"],
+      },
       // Slot order MUST stay Len, CV 1..8, On 1..8 — the kernel indexes params
       // positionally (LEN_IDX / CV_BASE / ON_BASE in sequencer.ts).
       params: {

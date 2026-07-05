@@ -86,6 +86,48 @@ function validateEntryAgainstSeed(entry: ModuleDSP, seedModules: SeedModule[]): 
       errors.push(`unknown control "${name}" on "${entry.slug}"`);
     }
   }
+
+  // Preview capability metadata (AP-13). Declared-but-unread lists name a
+  // wired jack/control; deferred lists name a seeded jack/control that is
+  // intentionally absent from the registry. Both are validated against the
+  // seed and against the entry itself so the two can never contradict.
+  const p = entry.preview;
+  if (p) {
+    const registryInputs = new Set(entry.inJacks);
+    const registryOutputs = new Set(entry.outJacks);
+    const registryParams = new Set(Object.keys(entry.params));
+    const allSeedJacks = new Set<string>([...inputs, ...outputs]);
+
+    for (const name of p.silentOutputs ?? []) {
+      if (!registryOutputs.has(name)) {
+        errors.push(`silentOutput "${name}" on "${entry.slug}" is not a registry output`);
+      }
+    }
+    for (const name of p.ignoredInputs ?? []) {
+      if (!registryInputs.has(name)) {
+        errors.push(`ignoredInput "${name}" on "${entry.slug}" is not a registry input`);
+      }
+    }
+    for (const name of p.ignoredControls ?? []) {
+      if (!registryParams.has(name)) {
+        errors.push(`ignoredControl "${name}" on "${entry.slug}" is not a registry param`);
+      }
+    }
+    for (const name of p.deferredJacks ?? []) {
+      if (!allSeedJacks.has(name)) {
+        errors.push(`deferredJack "${name}" on "${entry.slug}" is not a seeded jack`);
+      } else if (registryInputs.has(name) || registryOutputs.has(name)) {
+        errors.push(`deferredJack "${name}" on "${entry.slug}" is wired in the registry`);
+      }
+    }
+    for (const name of p.deferredControls ?? []) {
+      if (!controls.has(name)) {
+        errors.push(`deferredControl "${name}" on "${entry.slug}" is not a seeded control`);
+      } else if (registryParams.has(name)) {
+        errors.push(`deferredControl "${name}" on "${entry.slug}" is wired in the registry`);
+      }
+    }
+  }
   return errors;
 }
 
@@ -324,6 +366,121 @@ describe("production registry", () => {
   it("does not contain the toy test kernels", () => {
     expect(registry.has("toy-sine")).toBe(false);
     expect(registry.has("toy-gain")).toBe(false);
+  });
+});
+
+describe("preview capability metadata", () => {
+  it("accepts declared-but-unread lists that name real registry jacks/controls", () => {
+    const entry: ModuleDSP = {
+      ...validOscillatorEntry,
+      preview: {
+        silentOutputs: ["Saw", "Pulse", "Tri", "Sub"],
+        ignoredInputs: ["Sync", "PWM"],
+        ignoredControls: ["PW"],
+      },
+    };
+    expect(validateEntryAgainstSeed(entry, seed)).toEqual([]);
+  });
+
+  it("rejects a silentOutput that is not a registry output", () => {
+    const entry: ModuleDSP = { ...validOscillatorEntry, preview: { silentOutputs: ["Sync"] } };
+    expect(validateEntryAgainstSeed(entry, seed)).toEqual([
+      'silentOutput "Sync" on "oscillator" is not a registry output',
+    ]);
+  });
+
+  it("rejects an ignoredInput that is not a registry input", () => {
+    const entry: ModuleDSP = { ...validOscillatorEntry, preview: { ignoredInputs: ["Saw"] } };
+    expect(validateEntryAgainstSeed(entry, seed)).toEqual([
+      'ignoredInput "Saw" on "oscillator" is not a registry input',
+    ]);
+  });
+
+  it("rejects an ignoredControl that is not a registry param", () => {
+    const entry: ModuleDSP = { ...validOscillatorEntry, preview: { ignoredControls: ["Nope"] } };
+    expect(validateEntryAgainstSeed(entry, seed)).toEqual([
+      'ignoredControl "Nope" on "oscillator" is not a registry param',
+    ]);
+  });
+
+  it("accepts a deferredJack that is seeded but absent from the registry", () => {
+    const entry: ModuleDSP = {
+      ...validOscillatorEntry,
+      inJacks: ["1V/Oct", "FM", "EFM", "PWM"], // Sync intentionally unwired
+      preview: { deferredJacks: ["Sync"] },
+    };
+    expect(validateEntryAgainstSeed(entry, seed)).toEqual([]);
+  });
+
+  it("rejects a deferredJack that is actually wired in the registry", () => {
+    const entry: ModuleDSP = { ...validOscillatorEntry, preview: { deferredJacks: ["Sync"] } };
+    expect(validateEntryAgainstSeed(entry, seed)).toEqual([
+      'deferredJack "Sync" on "oscillator" is wired in the registry',
+    ]);
+  });
+
+  it("rejects a deferredJack that is not a seeded jack", () => {
+    const entry: ModuleDSP = { ...validOscillatorEntry, preview: { deferredJacks: ["Bogus"] } };
+    expect(validateEntryAgainstSeed(entry, seed)).toEqual([
+      'deferredJack "Bogus" on "oscillator" is not a seeded jack',
+    ]);
+  });
+
+  it("accepts a deferredControl that is seeded but absent from the registry", () => {
+    const { PW: _omit, ...paramsWithoutPw } = validOscillatorEntry.params;
+    const entry: ModuleDSP = {
+      ...validOscillatorEntry,
+      params: paramsWithoutPw,
+      preview: { deferredControls: ["PW"] },
+    };
+    expect(validateEntryAgainstSeed(entry, seed)).toEqual([]);
+  });
+
+  it("rejects a deferredControl that is actually wired in the registry", () => {
+    const entry: ModuleDSP = { ...validOscillatorEntry, preview: { deferredControls: ["PW"] } };
+    expect(validateEntryAgainstSeed(entry, seed)).toEqual([
+      'deferredControl "PW" on "oscillator" is wired in the registry',
+    ]);
+  });
+
+  it("rejects a deferredControl that is not a seeded control", () => {
+    const entry: ModuleDSP = { ...validOscillatorEntry, preview: { deferredControls: ["Nope"] } };
+    expect(validateEntryAgainstSeed(entry, seed)).toEqual([
+      'deferredControl "Nope" on "oscillator" is not a seeded control',
+    ]);
+  });
+
+  it("declares the oscillator's silent waves, ignored sync/pwm, and ignored PW", () => {
+    expect(registry.get("oscillator")?.preview).toEqual({
+      silentOutputs: ["Saw", "Pulse", "Tri", "Sub"],
+      ignoredInputs: ["Sync", "PWM"],
+      ignoredControls: ["PW"],
+    });
+  });
+
+  it("declares noise-source's silent Red/Blue outputs", () => {
+    expect(registry.get("noise-source")?.preview).toEqual({ silentOutputs: ["Red", "Blue"] });
+  });
+
+  it("declares sample-and-hold's ignored Slew control", () => {
+    expect(registry.get("sample-and-hold")?.preview).toEqual({ ignoredControls: ["Slew"] });
+  });
+
+  it("declares clock's deferred Ext Clk jack and Swing control", () => {
+    expect(registry.get("clock")?.preview).toEqual({
+      deferredJacks: ["Ext Clk"],
+      deferredControls: ["Swing"],
+    });
+  });
+
+  it("declares sequencer's deferred Dir/Sel jacks", () => {
+    expect(registry.get("sequencer")?.preview).toEqual({ deferredJacks: ["Dir", "Sel"] });
+  });
+
+  it("leaves fully-previewed modules without a preview block", () => {
+    for (const slug of ["audio-output", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo"]) {
+      expect(registry.get(slug)?.preview).toBeUndefined();
+    }
   });
 });
 
