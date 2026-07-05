@@ -454,19 +454,19 @@ describe("preview capability metadata", () => {
     expect(registry.get("noise-source")?.preview).toEqual({ silentOutputs: ["Red", "Blue"] });
   });
 
-  it("declares clock's deferred Ext Clk jack and Swing control", () => {
-    expect(registry.get("clock")?.preview).toEqual({
-      deferredJacks: ["Ext Clk"],
-      deferredControls: ["Swing"],
-    });
-  });
-
   it("declares sequencer's deferred Dir/Sel jacks", () => {
     expect(registry.get("sequencer")?.preview).toEqual({ deferredJacks: ["Dir", "Sel"] });
   });
 
+  it("clock is fully previewed — Ext Clk wired, Swing param present, no preview block", () => {
+    const entry = registry.get("clock");
+    expect(entry?.inJacks).toEqual(["Ext Clk", "Run", "Rst"]);
+    expect(Object.keys(entry?.params ?? {})).toEqual(["Tempo", "Swing"]);
+    expect(entry?.preview).toBeUndefined();
+  });
+
   it("leaves fully-previewed modules without a preview block", () => {
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo", "sample-and-hold"]) {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo", "sample-and-hold", "clock"]) {
       expect(registry.get(slug)?.preview).toBeUndefined();
     }
   });

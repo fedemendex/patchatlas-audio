@@ -225,19 +225,18 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
     {
       slug: "clock",
       kernel: clockKernel,
-      // Deferred (declared in seed, not wired — see clock.ts header):
-      // `Ext Clk` input (external-clock sync) and `Swing` control (AP-12 non-goal).
-      inJacks: ["Run", "Rst"],
+      // Fully previewed. Ext Clk slaves the divider to an external clock; when
+      // unpatched the internal BPM generator runs (see clock.ts header). Swing is
+      // the bipolar offbeat delay on the internal clock.
+      // Slot order matches the seed: Ext Clk, Run, Rst.
+      inJacks: ["Ext Clk", "Run", "Rst"],
       outJacks: ["Clk", "/2", "/4", "/8", "/16"],
       params: {
         Tempo: { min: 30, max: 300, default: 120, curve: "exponential" },
-      },
-      // Ext Clk (external-clock sync) and Swing are in the seed but not wired:
-      // internal-tempo generation is the AP-12 scope. A cable into Ext Clk is
-      // dropped by the compiler; the Swing knob value is never passed.
-      preview: {
-        deferredJacks: ["Ext Clk"],
-        deferredControls: ["Swing"],
+        // Bipolar (seed `bipolar: true`): 0 = straight, + delays the offbeat
+        // (standard shuffle), − pushes it early. Applies to the internal clock;
+        // external clock is passed through unswung.
+        Swing: { min: -1, max: 1, default: 0, curve: "linear" },
       },
     },
   ],

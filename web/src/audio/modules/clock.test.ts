@@ -32,21 +32,25 @@ function makeOuts(): Float32Array[] {
 
 /**
  * Renders `totalSamples` of the clock in BLOCK_FRAMES chunks with an optional
- * per-sample Run / Rst volt script; returns each output's full buffer.
+ * per-sample Ext Clk / Run / Rst volt script; returns each output's full buffer.
+ * Slot order matches the registry: ins = [Ext Clk, Run, Rst].
  */
 function renderClock(opts: {
   sr?: number;
   bpm: number;
+  swing?: number;
   totalSamples: number;
+  extAt?: (sample: number) => number;
   runAt?: (sample: number) => number;
   rstAt?: (sample: number) => number;
 }): Float32Array[] {
   const sr = opts.sr ?? SR;
   const state = clockKernel.init(sr);
   const outs = makeOuts();
+  const extBuf = opts.extAt ? new Float32Array(BLOCK_FRAMES) : null;
   const runBuf = opts.runAt ? new Float32Array(BLOCK_FRAMES) : null;
   const rstBuf = opts.rstAt ? new Float32Array(BLOCK_FRAMES) : null;
-  const params = new Float32Array([opts.bpm]);
+  const params = new Float32Array([opts.bpm, opts.swing ?? 0]);
   const result = [
     new Float32Array(opts.totalSamples),
     new Float32Array(opts.totalSamples),
@@ -57,10 +61,11 @@ function renderClock(opts: {
   for (let start = 0; start < opts.totalSamples; start += BLOCK_FRAMES) {
     const n = Math.min(BLOCK_FRAMES, opts.totalSamples - start);
     for (let i = 0; i < n; i++) {
+      if (extBuf && opts.extAt) extBuf[i] = opts.extAt(start + i);
       if (runBuf && opts.runAt) runBuf[i] = opts.runAt(start + i);
       if (rstBuf && opts.rstAt) rstBuf[i] = opts.rstAt(start + i);
     }
-    clockKernel.process(state, [runBuf, rstBuf], outs, params, n);
+    clockKernel.process(state, [extBuf, runBuf, rstBuf], outs, params, n);
     for (let s = 0; s < 5; s++) result[s].set(outs[s].subarray(0, n), start);
   }
   return result;
@@ -74,8 +79,10 @@ function renderClock(opts: {
 function collectTicks(opts: {
   sr?: number;
   bpm: number;
+  swing?: number;
   totalSamples: number;
   slot?: number;
+  extAt?: (sample: number) => number;
   runAt?: (sample: number) => number;
   rstAt?: (sample: number) => number;
 }): number[] {
@@ -83,18 +90,20 @@ function collectTicks(opts: {
   const slot = opts.slot ?? CLK;
   const state = clockKernel.init(sr);
   const outs = makeOuts();
+  const extBuf = opts.extAt ? new Float32Array(BLOCK_FRAMES) : null;
   const runBuf = opts.runAt ? new Float32Array(BLOCK_FRAMES) : null;
   const rstBuf = opts.rstAt ? new Float32Array(BLOCK_FRAMES) : null;
-  const params = new Float32Array([opts.bpm]);
+  const params = new Float32Array([opts.bpm, opts.swing ?? 0]);
   const ticks: number[] = [];
   let prevHigh = false;
   for (let start = 0; start < opts.totalSamples; start += BLOCK_FRAMES) {
     const n = Math.min(BLOCK_FRAMES, opts.totalSamples - start);
     for (let i = 0; i < n; i++) {
+      if (extBuf && opts.extAt) extBuf[i] = opts.extAt(start + i);
       if (runBuf && opts.runAt) runBuf[i] = opts.runAt(start + i);
       if (rstBuf && opts.rstAt) rstBuf[i] = opts.rstAt(start + i);
     }
-    clockKernel.process(state, [runBuf, rstBuf], outs, params, n);
+    clockKernel.process(state, [extBuf, runBuf, rstBuf], outs, params, n);
     const out = outs[slot];
     for (let i = 0; i < n; i++) {
       const high = out[i] > 0;
@@ -108,12 +117,12 @@ function collectTicks(opts: {
 // ── 1. Registry / seed ───────────────────────────────────────────────────────
 
 describe("clock registry entry", () => {
-  it("matches the seed: Run/Rst inputs, Clk + /2 /4 /8 /16 outputs, Tempo control", () => {
+  it("matches the seed: Ext Clk/Run/Rst inputs, Clk + /2 /4 /8 /16 outputs, Tempo + Swing controls", () => {
     const entry = registry.get("clock");
     expect(entry).toBeDefined();
-    expect(entry?.inJacks).toEqual(["Run", "Rst"]);
+    expect(entry?.inJacks).toEqual(["Ext Clk", "Run", "Rst"]);
     expect(entry?.outJacks).toEqual(["Clk", "/2", "/4", "/8", "/16"]);
-    expect(Object.keys(entry?.params ?? {})).toEqual(["Tempo"]);
+    expect(Object.keys(entry?.params ?? {})).toEqual(["Tempo", "Swing"]);
   });
 
   it("is playable", () => {
@@ -261,14 +270,248 @@ describe("clockKernel — reset", () => {
   });
 });
 
-// ── 6. Safety ─────────────────────────────────────────────────────────────────
+// ── 6. External clock (Ext Clk input) ─────────────────────────────────────────
+
+/**
+ * A rising-edge script: HIGH for `width` samples starting at each edge sample,
+ * 0 otherwise. `width` < the edge spacing so each pulse is a distinct edge.
+ */
+function extPulses(edges: number[], width = 50): (sample: number) => number {
+  return (i) => {
+    for (let e = 0; e < edges.length; e++) {
+      if (i >= edges[e] && i < edges[e] + width) return GATE_HIGH_V;
+    }
+    return 0;
+  };
+}
+
+describe("clockKernel — external clock (Ext Clk)", () => {
+  it("unpatched Ext Clk preserves the internal BPM behavior exactly", () => {
+    const period = SR * 0.5; // 24000 at 120 BPM
+    // Identical script to the internal downbeat test, extAt omitted (Ext Clk null).
+    const ticks = collectTicks({ bpm: 120, totalSamples: period * 5 + 100 });
+    expect(ticks).toEqual([0, period, 2 * period, 3 * period, 4 * period, 5 * period]);
+  });
+
+  it("emits Clk pulses exactly on external rising-edge samples", () => {
+    const edges = [1000, 4000, 9000];
+    const ticks = collectTicks({
+      bpm: 120,
+      totalSamples: 10000,
+      extAt: extPulses(edges),
+    });
+    expect(ticks).toEqual(edges);
+  });
+
+  it("the internal BPM generator produces no ticks while Ext Clk is patched (held low)", () => {
+    // Fast internal tempo, but Ext Clk patched and never crossing threshold →
+    // zero output: external input has fully replaced the internal generator.
+    const ticks = collectTicks({
+      bpm: 300,
+      totalSamples: SR,
+      extAt: () => 0,
+    });
+    expect(ticks).toEqual([]);
+  });
+
+  it("a sustained-high Ext Clk fires exactly once (no retrigger until re-armed)", () => {
+    const ticks = collectTicks({
+      bpm: 120,
+      totalSamples: 20000,
+      extAt: (i) => (i >= 1000 ? GATE_HIGH_V : 0), // one long pulse, never re-arms
+    });
+    expect(ticks).toEqual([1000]);
+  });
+
+  it("a slow ramp through the threshold fires exactly once", () => {
+    // 0 V until 1000, then ramps at 0.001 V/sample; crosses GATE_FIRE_THRESHOLD_V
+    // (1 V) at sample 2000 and stays high thereafter — one edge only.
+    const ticks = collectTicks({
+      bpm: 120,
+      totalSamples: 20000,
+      extAt: (i) => (i < 1000 ? 0 : Math.min(GATE_HIGH_V, (i - 1000) * 0.001)),
+    });
+    expect(ticks).toEqual([2000]);
+  });
+
+  it("division outputs count external ticks exactly as they count internal ticks", () => {
+    const spacing = 2000;
+    const edges: number[] = [];
+    for (let k = 0; k <= 16; k++) edges.push(k * spacing); // ticks 0..16
+    const totalSamples = 16 * spacing + 200;
+    const ext = extPulses(edges);
+
+    const clk = collectTicks({ bpm: 120, totalSamples, extAt: ext });
+    const d2 = collectTicks({ bpm: 120, totalSamples, slot: D2, extAt: ext });
+    const d4 = collectTicks({ bpm: 120, totalSamples, slot: D4, extAt: ext });
+    const d8 = collectTicks({ bpm: 120, totalSamples, slot: D8, extAt: ext });
+    const d16 = collectTicks({ bpm: 120, totalSamples, slot: D16, extAt: ext });
+
+    const at = (k: number) => k * spacing;
+    expect(clk).toEqual(edges);
+    expect(d2).toEqual([0, 2, 4, 6, 8, 10, 12, 14, 16].map(at));
+    expect(d4).toEqual([0, 4, 8, 12, 16].map(at));
+    expect(d8).toEqual([0, 8, 16].map(at));
+    expect(d16).toEqual([0, 16].map(at));
+  });
+
+  it("Rst re-zeros the external divide phase: the next external edge is a downbeat", () => {
+    const spacing = 2000;
+    const edges: number[] = [];
+    for (let k = 0; k <= 8; k++) edges.push(k * spacing); // edges at 0,2000,…,16000
+    const totalSamples = 8 * spacing + 200;
+    const resetAt = 5000; // between the edges at 4000 and 6000
+    const ext = extPulses(edges);
+    const rst = (i: number) => (i >= resetAt && i < resetAt + 100 ? GATE_HIGH_V : 0);
+
+    const clk = collectTicks({ bpm: 120, totalSamples, extAt: ext, rstAt: rst });
+    const d16 = collectTicks({ bpm: 120, totalSamples, slot: D16, extAt: ext, rstAt: rst });
+
+    // Reset itself emits no Clk (external mode fires only on edges); the edge at
+    // 6000 fires, and — divide phase re-zeroed — /16 fires with it (downbeat).
+    expect(clk).not.toContain(resetAt);
+    expect(clk).toContain(6000);
+    expect(d16).toContain(6000);
+  });
+
+  it("non-finite Ext Clk samples never fire and keep outputs finite", () => {
+    // Infinity/NaN scattered through the buffer; one genuine finite edge at 500.
+    const ext = (i: number) => {
+      if (i >= 500 && i < 550) return GATE_HIGH_V; // the only real edge
+      if (i % 5 === 0) return Infinity;
+      if (i % 7 === 0) return NaN;
+      return 0;
+    };
+    const outs = renderClock({ bpm: 120, totalSamples: 5000, extAt: ext });
+    for (let s = 0; s < 5; s++) {
+      for (let i = 0; i < 5000; i++) expect(Number.isFinite(outs[s][i])).toBe(true);
+    }
+    const ticks = collectTicks({ bpm: 120, totalSamples: 5000, extAt: ext });
+    expect(ticks).toEqual([500]); // the Infinity/NaN samples did not fire
+  });
+});
+
+// ── 7. Swing (internal clock) ─────────────────────────────────────────────────
+
+describe("clockKernel — swing", () => {
+  it("swing = 0 matches the straight clock exactly", () => {
+    const period = SR * 0.5;
+    const totalSamples = period * 5 + 100;
+    const straight = collectTicks({ bpm: 120, totalSamples });
+    const swung0 = collectTicks({ bpm: 120, swing: 0, totalSamples });
+    expect(swung0).toEqual(straight);
+  });
+
+  it("positive swing delays the offbeat: intervals alternate long/short", () => {
+    // P = 24000, delay = 0.5·(1/3)·P = 4000 → A = 28000, B = 20000 (integers).
+    const P = SR * 0.5;
+    const ticks = collectTicks({ bpm: 120, swing: 0.5, totalSamples: 100000 });
+    expect(ticks).toEqual([0, 28000, 48000, 76000, 96000]);
+    // Interval A then B then A then B …
+    const intervals: number[] = [];
+    for (let k = 1; k < ticks.length; k++) intervals.push(ticks[k] - ticks[k - 1]);
+    expect(intervals).toEqual([28000, 20000, 28000, 20000]);
+    // Every two-tick cycle sums to exactly 2P — no cumulative drift.
+    for (let k = 0; k + 2 < ticks.length; k++) {
+      expect(ticks[k + 2] - ticks[k]).toBe(2 * P);
+    }
+  });
+
+  it("negative swing pushes the offbeat early: intervals alternate short/long", () => {
+    const P = SR * 0.5;
+    const ticks = collectTicks({ bpm: 120, swing: -0.5, totalSamples: 100000 });
+    const intervals: number[] = [];
+    for (let k = 1; k < ticks.length; k++) intervals.push(ticks[k] - ticks[k - 1]);
+    expect(intervals).toEqual([20000, 28000, 20000, 28000]);
+    for (let k = 0; k + 2 < ticks.length; k++) {
+      expect(ticks[k + 2] - ticks[k]).toBe(2 * P);
+    }
+  });
+
+  it("even ticks stay pinned to k·P over a 60 s render (no cumulative drift)", () => {
+    const P = (SR * 60) / 120; // exactly 24000
+    const delay = 0.5 * (1 / 3) * P; // 4000
+    const ticks = collectTicks({ bpm: 120, swing: 0.5, totalSamples: SR * 60 });
+    expect(ticks.length).toBeGreaterThan(100);
+    for (let m = 0; m < ticks.length; m++) {
+      // even index → on the grid; odd index → grid + delay. Both within ±1.
+      const expected = (m % 2 === 0 ? m * P : m * P + delay);
+      expect(Math.abs(ticks[m] - expected)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("swing has no cumulative drift with a fractional period (110 BPM, 60 s)", () => {
+    // 48000·60/110 = 26181.81… samples — deliberately non-integer, and the swing
+    // delay P/6 is fractional too, so a clock that accumulated rounded periods
+    // would drift many samples by minute's end. Unlike the 120 BPM case above,
+    // this exercises the float remainder path, not integer arithmetic.
+    const P = (SR * 60) / 110;
+    const delay = 0.5 * (1 / 3) * P; // P/6, fractional
+    const A = P + delay; // long interval (even tick → odd tick)
+    const B = P - delay; // short interval (odd tick → even tick)
+    const ticks = collectTicks({ bpm: 110, swing: 0.5, totalSamples: SR * 60 });
+    expect(ticks.length).toBeGreaterThan(100);
+
+    // Downbeat/even ticks stay within ±1 sample of the ideal grid (m·P); odd
+    // ticks stay within ±1 of the swung position (m·P + delay). No drift.
+    for (let m = 0; m < ticks.length; m++) {
+      const ideal = m % 2 === 0 ? m * P : m * P + delay;
+      expect(Math.abs(ticks[m] - ideal)).toBeLessThanOrEqual(1);
+    }
+
+    // Long/short intervals still alternate (each within ±1 of ideal A/B) and every
+    // two-tick cycle sums to ≈ 2P — asserted with a tolerance, not float equality.
+    for (let k = 1; k < ticks.length; k++) {
+      const interval = ticks[k] - ticks[k - 1];
+      const idealInterval = k % 2 === 1 ? A : B; // interval leading into tick k
+      expect(Math.abs(interval - idealInterval)).toBeLessThanOrEqual(1);
+    }
+    for (let k = 0; k + 2 < ticks.length; k++) {
+      expect(Math.abs(ticks[k + 2] - ticks[k] - 2 * P)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("division outputs align with the swung parent ticks (divisions land on even ticks)", () => {
+    const totalSamples = 200000;
+    const clk = collectTicks({ bpm: 120, swing: 0.5, totalSamples });
+    const d2 = collectTicks({ bpm: 120, swing: 0.5, totalSamples, slot: D2 });
+    // /2 fires on parent ticks 0,2,4,… — the even (un-delayed) ticks.
+    const evenTicks: number[] = [];
+    for (let k = 0; k < clk.length; k += 2) evenTicks.push(clk[k]);
+    expect(d2).toEqual(evenTicks);
+  });
+
+  it("out-of-range swing clamps safely (no zero/negative interval)", () => {
+    const P = SR * 0.5;
+    // swing 5 clamps to 1 → delay = P/3 = 8000 → A = 32000, B = 16000.
+    const ticks = collectTicks({ bpm: 120, swing: 5, totalSamples: 100000 });
+    const intervals: number[] = [];
+    for (let k = 1; k < ticks.length; k++) intervals.push(ticks[k] - ticks[k - 1]);
+    for (const iv of intervals) expect(iv).toBeGreaterThan(0);
+    expect(intervals[0]).toBe(32000);
+    expect(intervals[1]).toBe(16000);
+    for (let k = 0; k + 2 < ticks.length; k++) {
+      expect(ticks[k + 2] - ticks[k]).toBe(2 * P);
+    }
+  });
+
+  it("non-finite swing falls back to straight timing", () => {
+    const period = SR * 0.5;
+    const totalSamples = period * 4 + 100;
+    const straight = collectTicks({ bpm: 120, totalSamples });
+    const nan = collectTicks({ bpm: 120, swing: NaN, totalSamples });
+    expect(nan).toEqual(straight);
+  });
+});
+
+// ── 8. Safety ─────────────────────────────────────────────────────────────────
 
 describe("clockKernel — safety", () => {
-  it("non-finite Tempo falls back to a running clock with finite outputs", () => {
+  it("non-finite Tempo (and Swing) falls back to a running clock with finite outputs", () => {
     const state = clockKernel.init(SR);
     const outs = makeOuts();
-    const params = new Float32Array([NaN]);
-    clockKernel.process(state, [null, null], outs, params, BLOCK_FRAMES);
+    const params = new Float32Array([NaN, NaN]);
+    clockKernel.process(state, [null, null, null], outs, params, BLOCK_FRAMES);
     for (let s = 0; s < 5; s++) {
       for (let i = 0; i < BLOCK_FRAMES; i++) expect(Number.isFinite(outs[s][i])).toBe(true);
     }
@@ -285,8 +528,8 @@ describe("clockKernel — safety", () => {
       runBuf[i] = i % 2 === 0 ? NaN : GATE_HIGH_V;
       rstBuf[i] = i % 3 === 0 ? Infinity : i % 3 === 1 ? -Infinity : 0;
     }
-    const params = new Float32Array([120]);
-    clockKernel.process(state, [runBuf, rstBuf], outs, params, BLOCK_FRAMES);
+    const params = new Float32Array([120, 0]);
+    clockKernel.process(state, [null, runBuf, rstBuf], outs, params, BLOCK_FRAMES);
     for (let s = 0; s < 5; s++) {
       for (let i = 0; i < BLOCK_FRAMES; i++) expect(Number.isFinite(outs[s][i])).toBe(true);
     }
@@ -297,8 +540,8 @@ describe("clockKernel — safety", () => {
     const outs = makeOuts();
     for (const o of outs) o.fill(999);
     const n = 17;
-    const params = new Float32Array([120]);
-    clockKernel.process(state, [null, null], outs, params, n);
+    const params = new Float32Array([120, 0]);
+    clockKernel.process(state, [null, null, null], outs, params, n);
     for (const o of outs) {
       for (let i = 0; i < n; i++) expect(o[i]).not.toBe(999);
       for (let i = n; i < BLOCK_FRAMES; i++) expect(o[i]).toBe(999);

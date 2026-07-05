@@ -124,7 +124,23 @@ timer under `web/src/audio`, in `useAudioEngine`, is a non-musical graph-rebuild
   `/2 /4 /8 /16` fire on every 2nd/4th/8th/16th parent tick, sample-aligned with `Clk`
   (all five coincide on tick 0). Unpatched `Run` runs; a `Run` low stops (Schmitt). A `Rst`
   rising edge restarts to the power-on state — divide counter to 0, downbeat on the reset
-  sample. (Seed `Ext Clk` input and `Swing` control are deferred.)
+  sample.
+  - **`Swing`** (bipolar −1..+1, default 0) delays every second parent tick within a two-tick
+    cycle: with `delay = swing · MAX_SWING_DELAY_RATIO · period` (`MAX_SWING_DELAY_RATIO` = 1/3),
+    ticks land at `0, P+delay, 2P, 3P+delay, 4P, …`, so the two alternating intervals
+    (`P+delay` / `P−delay`) always sum to exactly `2P` — even ticks stay pinned to `k·P` with no
+    cumulative drift, and `1/3` keeps `|delay| < P` so an interval never collapses. Positive swing
+    delays the offbeat (standard shuffle); negative pushes it early; 0 (or a non-finite reading)
+    is bit-for-bit the straight clock. Divisions derive from the swung parent ticks, firing on the
+    un-delayed even ticks.
+  - **`Ext Clk`** (external-clock input): when patched it **replaces** the internal BPM generator
+    as the parent-tick source — a rising edge (standard Schmitt thresholds) emits `Clk` on that
+    sample and advances the divide counter, so `/2 /4 /8 /16` count external ticks identically to
+    internal ones; a sustained-high input fires once until it re-arms and non-finite samples never
+    fire. `Rst` re-zeros the external divide phase (the next edge is a downbeat). **Swing applies
+    to the internal BPM clock only; the external clock is passed through sample-accurately and used
+    as the parent tick source** (offbeats are not re-timed). Unpatched `Ext Clk` leaves the
+    internal-tempo clock exactly as above.
 - **Sequencer** (`sequencer`): advances one step per `Clk` rising edge (standard Schmitt
   thresholds); the first edge after init/reset latches step 0 (never an off-by-one to step 1).
   Step CV comes from the stored `CV 1..8` controls, each mapped **0 → 2 V** (two octaves at
