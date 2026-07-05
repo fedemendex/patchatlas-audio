@@ -1,8 +1,8 @@
 // Noise source kernel for slug "noise-source".
 //
-// The seed's four outputs are White, Pink, Red, Blue. Only White (required)
-// and Pink (a small, standard approximation) are implemented in AP-11; Red
-// and Blue write silence — see the deferral note below.
+// The seed's four outputs are White, Pink, Red, Blue. All four are
+// implemented: White and Pink shipped in AP-11; Red and Blue (this
+// follow-up) are preview-quality colorings, not lab-grade spectral models.
 //
 // White: a uniform draw in [-CV_BIPOLAR_MAX, +CV_BIPOLAR_MAX) per sample.
 // Expected RMS for a uniform ±a signal is a/√3, i.e. ≈ 2.886 V here.
@@ -26,6 +26,23 @@
 // happens only in audio-output" refers to volts→float DAC conversion; this
 // clamp never converts volts to floats and is not a substitute for it).
 //
+// Red: a leaky integrator (one-pole lowpass) fed by the same unit-scale
+// white draw: redState = RED_LEAK_COEFF*redState + whiteUnit*RED_WHITE_GAIN.
+// RED_LEAK_COEFF < 1 keeps this a bounded AR(1) process rather than an
+// unbounded random walk (a true integrator, leak = 1, drifts without
+// limit). This is preview-quality brown/red-ish noise — a rough low-frequency
+// trend, not a calibrated −6 dB/oct spectral model. Scaled to volts and
+// hard-clamped to ±CV_BIPOLAR_MAX as the same source-range guard as Pink.
+//
+// Blue: a first-difference (one-sample high-pass) of the unit-scale white
+// draw: blueUnit = (whiteUnit − previousWhiteUnit) * BLUE_DIFF_GAIN. This
+// doubles high-frequency energy the way differencing always does (the same
+// mechanism the white-noise spectrum test exercises), giving a rough
+// +6 dB/oct trend — preview-quality blue-ish noise, not a calibrated
+// spectral model. Scaled to volts and hard-clamped to ±CV_BIPOLAR_MAX; the
+// clamp matters more here since two independent uniform draws can add
+// constructively past the nominal range.
+//
 // RNG: xorshift32 (Marsaglia), a small deterministic 32-bit PRNG. Its state
 // lives entirely in the per-kernel state object allocated by init() — never
 // a module-level/global variable — so two freshly initialized kernels
@@ -34,11 +51,6 @@
 // constant (xorshift is degenerate at an all-zero state, so 0 must never be
 // used or reached — it never is, since xorshift32 is a bijection on the
 // nonzero states).
-//
-// Deferred: Red and Blue outputs are silence (0 V) in AP-11. Neither is
-// named in the roadmap issue's scope, and adding correct integrated
-// (red/brown) or differentiated (blue) noise coloring is left to a
-// follow-up if a patch needs it.
 //
 // Deferred: "noise-random" (a second seeded noise slug with Clk/Rate CV
 // inputs and White/Pink/Rand CV/Rand Gate outputs) is NOT registered here.
@@ -50,7 +62,7 @@
 //
 // Jack/param layout (seed declaration order):
 //   ins: none
-//   outs[0] = White  outs[1] = Pink  outs[2] = Red (silent)  outs[3] = Blue (silent)
+//   outs[0] = White  outs[1] = Pink  outs[2] = Red  outs[3] = Blue
 //   params: none
 
 import type { Kernel } from "../engine/kernel";
@@ -74,18 +86,45 @@ const PINK_WHITE_GAIN_OUT = 0.1848;
 // at the same order of magnitude as White's ±CV_BIPOLAR_MAX uniform RMS.
 const PINK_GAIN_COMPENSATION = 0.22;
 
+// Red (leaky integrator): leak < 1 keeps the AR(1) process bounded instead of
+// an unbounded random walk; the gain is tuned (with the leak) to keep Red's
+// stationary RMS well within the ±CV_BIPOLAR_MAX source range before clamping.
+const RED_LEAK_COEFF = 0.98;
+const RED_WHITE_GAIN = 0.1;
+
+// Blue (first difference): gain on (current - previous) white sample, tuned
+// so Blue's typical amplitude sits near White's while its clamp still
+// catches the occasional constructive peak from two independent draws.
+const BLUE_DIFF_GAIN = 0.8;
+
 const U32_SCALE = 1 / 4294967296; // 2^32, converts an unsigned 32-bit int to [0, 1)
+
+/** Source-range guard shared by Pink/Red/Blue: hard-clamps to ±CV_BIPOLAR_MAX. */
+function clampToBipolarRange(v: number): number {
+  if (v > CV_BIPOLAR_MAX) return CV_BIPOLAR_MAX;
+  if (v < -CV_BIPOLAR_MAX) return -CV_BIPOLAR_MAX;
+  return v;
+}
 
 interface NoiseSourceState {
   rngState: number; // xorshift32 state; always kept nonzero
   pinkB0: number;
   pinkB1: number;
   pinkB2: number;
+  redState: number; // leaky integrator accumulator (unit scale, pre-CV_BIPOLAR_MAX)
+  prevWhiteUnit: number; // previous unit-scale white draw, for Blue's difference
 }
 
 export const noiseSourceKernel: Kernel<NoiseSourceState> = {
   init(): NoiseSourceState {
-    return { rngState: RNG_SEED, pinkB0: 0, pinkB1: 0, pinkB2: 0 };
+    return {
+      rngState: RNG_SEED,
+      pinkB0: 0,
+      pinkB1: 0,
+      pinkB2: 0,
+      redState: 0,
+      prevWhiteUnit: 0,
+    };
   },
 
   process(state, _ins, outs, _params, n) {
@@ -98,6 +137,8 @@ export const noiseSourceKernel: Kernel<NoiseSourceState> = {
     let b0 = state.pinkB0;
     let b1 = state.pinkB1;
     let b2 = state.pinkB2;
+    let red = state.redState;
+    let prevWhiteUnit = state.prevWhiteUnit;
 
     for (let i = 0; i < n; i++) {
       // xorshift32 step (Marsaglia).
@@ -114,22 +155,26 @@ export const noiseSourceKernel: Kernel<NoiseSourceState> = {
       b0 = PINK_B0_COEFF * b0 + whiteUnit * PINK_WHITE_GAIN_B0;
       b1 = PINK_B1_COEFF * b1 + whiteUnit * PINK_WHITE_GAIN_B1;
       b2 = PINK_B2_COEFF * b2 + whiteUnit * PINK_WHITE_GAIN_B2;
-      let pink =
+      const pink =
         (b0 + b1 + b2 + whiteUnit * PINK_WHITE_GAIN_OUT) * PINK_GAIN_COMPENSATION * CV_BIPOLAR_MAX;
       // Source-range guard (not DAC clipping — see header note): bounds the
       // rare hot peak this filter's heavier-than-uniform tail can still
       // produce after gain compensation.
-      if (pink > CV_BIPOLAR_MAX) pink = CV_BIPOLAR_MAX;
-      else if (pink < -CV_BIPOLAR_MAX) pink = -CV_BIPOLAR_MAX;
-      outPink[i] = pink;
+      outPink[i] = clampToBipolarRange(pink);
 
-      outRed[i] = 0;
-      outBlue[i] = 0;
+      red = RED_LEAK_COEFF * red + whiteUnit * RED_WHITE_GAIN;
+      outRed[i] = clampToBipolarRange(red * CV_BIPOLAR_MAX);
+
+      const blueUnit = (whiteUnit - prevWhiteUnit) * BLUE_DIFF_GAIN;
+      outBlue[i] = clampToBipolarRange(blueUnit * CV_BIPOLAR_MAX);
+      prevWhiteUnit = whiteUnit;
     }
 
     state.rngState = rng;
     state.pinkB0 = b0;
     state.pinkB1 = b1;
     state.pinkB2 = b2;
+    state.redState = red;
+    state.prevWhiteUnit = prevWhiteUnit;
   },
 };

@@ -450,10 +450,6 @@ describe("preview capability metadata", () => {
     ]);
   });
 
-  it("declares noise-source's silent Red/Blue outputs", () => {
-    expect(registry.get("noise-source")?.preview).toEqual({ silentOutputs: ["Red", "Blue"] });
-  });
-
   it("declares sequencer's deferred Dir/Sel jacks", () => {
     expect(registry.get("sequencer")?.preview).toEqual({ deferredJacks: ["Dir", "Sel"] });
   });
@@ -465,8 +461,12 @@ describe("preview capability metadata", () => {
     expect(entry?.preview).toBeUndefined();
   });
 
+  it("noise-source is fully previewed — White, Pink, Red, Blue all implemented, no preview block", () => {
+    expect(registry.get("noise-source")?.preview).toBeUndefined();
+  });
+
   it("leaves fully-previewed modules without a preview block", () => {
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo", "sample-and-hold", "clock"]) {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo", "sample-and-hold", "clock", "noise-source"]) {
       expect(registry.get(slug)?.preview).toBeUndefined();
     }
   });

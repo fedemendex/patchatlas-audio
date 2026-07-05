@@ -72,6 +72,8 @@ describe("noiseSourceKernel — determinism", () => {
     const b = render(BLOCK_FRAMES);
     expect(a[WHITE]).toEqual(b[WHITE]);
     expect(a[PINK]).toEqual(b[PINK]);
+    expect(a[RED]).toEqual(b[RED]);
+    expect(a[BLUE]).toEqual(b[BLUE]);
   });
 
   it("a continued state produces a different second block than the first", () => {
@@ -179,7 +181,7 @@ describe("noiseSourceKernel — white noise spectrum", () => {
 // ── 5. Output writing ────────────────────────────────────────────────────────
 
 describe("noiseSourceKernel — output discipline", () => {
-  it("writes every declared output for every sample, including Red/Blue silence", () => {
+  it("writes every declared output for every sample", () => {
     const state = noiseSourceKernel.init(SR);
     const outs = makeOuts();
     for (const o of outs) o.fill(999);
@@ -188,8 +190,8 @@ describe("noiseSourceKernel — output discipline", () => {
     for (let i = 0; i < n; i++) {
       expect(outs[WHITE][i]).not.toBe(999);
       expect(outs[PINK][i]).not.toBe(999);
-      expect(outs[RED][i]).toBe(0);
-      expect(outs[BLUE][i]).toBe(0);
+      expect(outs[RED][i]).not.toBe(999);
+      expect(outs[BLUE][i]).not.toBe(999);
     }
   });
 
@@ -268,5 +270,109 @@ describe("noiseSourceKernel — pink noise", () => {
     const whiteRatio = whiteDiffEnergy / whiteEnergy;
     const pinkRatio = pinkDiffEnergy / pinkEnergy;
     expect(pinkRatio).toBeLessThan(whiteRatio);
+  });
+});
+
+// ── 7. Red noise ──────────────────────────────────────────────────────────────
+
+describe("noiseSourceKernel — red noise", () => {
+  const totalSamples = SR * 2;
+  const outs = render(totalSamples);
+
+  it("every sample is finite", () => {
+    for (let i = 0; i < totalSamples; i++) {
+      expect(Number.isFinite(outs[RED][i])).toBe(true);
+    }
+  });
+
+  it("is non-silent", () => {
+    let allZero = true;
+    for (let i = 0; i < totalSamples; i++) {
+      if (outs[RED][i] !== 0) allZero = false;
+    }
+    expect(allZero).toBe(false);
+  });
+
+  it("is deterministic across two fresh renders", () => {
+    const a = render(BLOCK_FRAMES);
+    const b = render(BLOCK_FRAMES);
+    expect(a[RED]).toEqual(b[RED]);
+  });
+
+  it("stays within ±CV_BIPOLAR_MAX", () => {
+    for (let i = 0; i < totalSamples; i++) {
+      expect(outs[RED][i]).toBeGreaterThanOrEqual(-CV_BIPOLAR_MAX);
+      expect(outs[RED][i]).toBeLessThanOrEqual(CV_BIPOLAR_MAX);
+    }
+  });
+
+  it("has lower average sample-to-sample movement than White (leaky-integrator smoothing)", () => {
+    const white = outs[WHITE];
+    const red = outs[RED];
+    let whiteMovement = 0;
+    let redMovement = 0;
+    for (let i = 1; i < totalSamples; i++) {
+      whiteMovement += Math.abs(white[i] - white[i - 1]);
+      redMovement += Math.abs(red[i] - red[i - 1]);
+    }
+    expect(redMovement).toBeLessThan(whiteMovement);
+  });
+});
+
+// ── 8. Blue noise ─────────────────────────────────────────────────────────────
+
+describe("noiseSourceKernel — blue noise", () => {
+  const totalSamples = SR * 2;
+  const outs = render(totalSamples);
+
+  it("every sample is finite", () => {
+    for (let i = 0; i < totalSamples; i++) {
+      expect(Number.isFinite(outs[BLUE][i])).toBe(true);
+    }
+  });
+
+  it("is non-silent", () => {
+    let allZero = true;
+    for (let i = 0; i < totalSamples; i++) {
+      if (outs[BLUE][i] !== 0) allZero = false;
+    }
+    expect(allZero).toBe(false);
+  });
+
+  it("is deterministic across two fresh renders", () => {
+    const a = render(BLOCK_FRAMES);
+    const b = render(BLOCK_FRAMES);
+    expect(a[BLUE]).toEqual(b[BLUE]);
+  });
+
+  it("stays within ±CV_BIPOLAR_MAX", () => {
+    for (let i = 0; i < totalSamples; i++) {
+      expect(outs[BLUE][i]).toBeGreaterThanOrEqual(-CV_BIPOLAR_MAX);
+      expect(outs[BLUE][i]).toBeLessThanOrEqual(CV_BIPOLAR_MAX);
+    }
+  });
+
+  it("has higher average sample-to-sample movement than White (first-difference brightening)", () => {
+    const white = outs[WHITE];
+    const blue = outs[BLUE];
+    let whiteMovement = 0;
+    let blueMovement = 0;
+    for (let i = 1; i < totalSamples; i++) {
+      whiteMovement += Math.abs(white[i] - white[i - 1]);
+      blueMovement += Math.abs(blue[i] - blue[i - 1]);
+    }
+    expect(blueMovement).toBeGreaterThan(whiteMovement);
+  });
+
+  it("has materially more high-frequency movement than Red", () => {
+    const red = outs[RED];
+    const blue = outs[BLUE];
+    let redMovement = 0;
+    let blueMovement = 0;
+    for (let i = 1; i < totalSamples; i++) {
+      redMovement += Math.abs(red[i] - red[i - 1]);
+      blueMovement += Math.abs(blue[i] - blue[i - 1]);
+    }
+    expect(blueMovement).toBeGreaterThan(redMovement * 5);
   });
 });

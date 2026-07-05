@@ -198,11 +198,8 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       inJacks: [],
       outJacks: ["White", "Pink", "Red", "Blue"],
       params: {},
-      // AP-11 implements White + Pink; Red (integrated) and Blue (differentiated)
-      // noise coloring are deferred and write silence — see noiseSource.ts header.
-      preview: {
-        silentOutputs: ["Red", "Blue"],
-      },
+      // Fully previewed: White, Pink, Red (leaky-integrator) and Blue
+      // (first-difference) coloring are all implemented — see noiseSource.ts.
     },
   ],
   [

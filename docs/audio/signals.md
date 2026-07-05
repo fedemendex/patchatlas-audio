@@ -96,7 +96,11 @@ to 0 Hz; the upper rate is capped at 30 Hz (the preview LFO is deliberately sub-
 
 The noise source's `White` output is bipolar ±5 V uniform noise (expected RMS
 `CV_BIPOLAR_MAX / √3` ≈ 2.886 V); `Pink` is a small one-pole-sum approximation of the same
-noise, not exact 1/f. `Sample & Hold`'s `Trig` input uses the standard Schmitt gate
+noise, not exact 1/f. `Red` is a leaky-integrator (bounded one-pole lowpass) coloring of the
+same white draw, and `Blue` is a first-difference (one-sample high-pass) coloring — both are
+preview-quality brown-ish/blue-ish trends, not calibrated spectral models, and both are
+hard-clamped to ±CV_BIPOLAR_MAX as the same source-range guard as `Pink` (`noiseSource.ts`).
+`Sample & Hold`'s `Trig` input uses the standard Schmitt gate
 thresholds; the trigger sample itself already carries the newly sampled value (sampling
 happens before the output is written, never one sample later). Its `Slew` control smooths
 both the `S&H` and `T&H` outputs toward their sampled/tracked target with a one-pole
