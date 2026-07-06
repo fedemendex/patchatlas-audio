@@ -25,10 +25,10 @@ const PRESET_PLATE = 2;
 function roomParams(): Float32Array {
   const p = new Float32Array(PARAM_COUNT);
   p[P_PRESET] = PRESET_ROOM;
-  p[P_PRE_DELAY] = 0.015;
-  p[P_SIZE] = 0.35;
-  p[P_DECAY] = 0.35;
-  p[P_DAMP] = 0.45;
+  p[P_PRE_DELAY] = 0.032;
+  p[P_SIZE] = 1;
+  p[P_DECAY] = 0.32;
+  p[P_DAMP] = 0.64;
   p[P_MIX] = 0.25;
   return p;
 }
@@ -186,7 +186,7 @@ describe("stereo shape", () => {
     expect(rms(R, 0, SR / 2)).toBeGreaterThan(0);
   });
 
-  it("plate is mono-fed: a hard-left input still yields balanced stereo reverb", () => {
+  it("the tank is mono-fed (upstream model): a hard-left input still yields balanced stereo reverb", () => {
     const params = presetParams(PRESET_PLATE);
     params[P_MIX] = 1; // wet only, so channel balance measures the tank alone
     const { L, R } = render({
@@ -226,9 +226,11 @@ describe("visible controls shape the tail", () => {
     const bright = roomParams();
     bright[P_DAMP] = 0.1;
     bright[P_MIX] = 1;
+    bright[P_DECAY] = 0.7; // long enough that the window below is pure tail
     const dark = roomParams();
     dark[P_DAMP] = 0.9;
     dark[P_MIX] = 1;
+    dark[P_DECAY] = 0.7;
     const a = render({ totalSamples: SR, params: bright, inLAt: impulseAt0, inRAt: impulseAt0 });
     const b = render({ totalSamples: SR, params: dark, inLAt: impulseAt0, inRAt: impulseAt0 });
     // Late-tail window: damping is applied per tank circulation, so its
@@ -297,6 +299,140 @@ describe("presets", () => {
       inRAt: impulseAt0,
     });
     expect(rms(hall.L, 0.6 * SR, SR)).toBeGreaterThan(rms(room.L, 0.6 * SR, SR) * 2);
+  });
+});
+
+// The kernel is a port of khoin/DattorroReverbNode (see reverb.ts header).
+// These tests run the VENDORED upstream processor (__fixtures__/
+// dattorroReverbUpstream.js, verbatim) against the kernel with equivalent
+// parameters and require numerical agreement to within float32 rounding
+// noise — the port must never drift from the known-good implementation.
+describe("upstream equivalence (khoin/DattorroReverbNode)", () => {
+  interface UpstreamProcessor {
+    process(
+      inputs: Float32Array[][],
+      outputs: Float32Array[][],
+      parameters: Record<string, number[]>,
+    ): boolean;
+  }
+
+  // Memoized: the fixture's registerProcessor side effect fires only on the
+  // first import (module cache), so capture the class once. sampleRate is
+  // read at class-body evaluation and construction — always SR here.
+  let upstreamClass: Promise<new () => UpstreamProcessor> | null = null;
+  function loadUpstream(sr: number): Promise<new () => UpstreamProcessor> {
+    if (upstreamClass) return upstreamClass;
+    const g = globalThis as Record<string, unknown>;
+    let captured: unknown;
+    g.sampleRate = sr;
+    g.AudioWorkletProcessor = class {};
+    g.registerProcessor = (_name: string, cls: unknown) => {
+      captured = cls;
+    };
+    upstreamClass = import("./__fixtures__/dattorroReverbUpstream.js").then(
+      () => captured as new () => UpstreamProcessor,
+    );
+    return upstreamClass;
+  }
+
+  // Renders both implementations over the same scripted input and returns
+  // the max absolute sample difference across both channels.
+  async function maxDivergence(opts: {
+    preset: number;
+    upstreamParams: Record<string, number[]>;
+    visible: { preDelay: number; decay: number; damp: number; mix: number };
+    blocks: number;
+    inAt: (i: number) => number;
+  }): Promise<number> {
+    const Upstream = await loadUpstream(SR);
+    const proc = new Upstream();
+    const state = reverbKernel.init(SR);
+
+    const p = new Float32Array(PARAM_COUNT);
+    p[P_PRESET] = opts.preset;
+    p[P_PRE_DELAY] = opts.visible.preDelay;
+    p[P_SIZE] = 1; // upstream's tank is our Size = 1 exactly
+    p[P_DECAY] = opts.visible.decay;
+    p[P_DAMP] = opts.visible.damp;
+    p[P_MIX] = opts.visible.mix;
+
+    const inL = new Float32Array(BLOCK_FRAMES);
+    const inR = new Float32Array(BLOCK_FRAMES);
+    const upL = new Float32Array(BLOCK_FRAMES);
+    const upR = new Float32Array(BLOCK_FRAMES);
+    const outs = [new Float32Array(BLOCK_FRAMES), new Float32Array(BLOCK_FRAMES)];
+    let maxDiff = 0;
+    for (let b = 0; b < opts.blocks; b++) {
+      for (let i = 0; i < BLOCK_FRAMES; i++) {
+        inL[i] = opts.inAt(b * BLOCK_FRAMES + i);
+        inR[i] = inL[i];
+      }
+      upL.fill(0);
+      upR.fill(0);
+      proc.process([[inL, inR]], [[upL, upR]], opts.upstreamParams);
+      reverbKernel.process(state, [inL, inR, null], outs, p, BLOCK_FRAMES);
+      for (let i = 0; i < BLOCK_FRAMES; i++) {
+        maxDiff = Math.max(
+          maxDiff,
+          Math.abs(upL[i] - outs[0][i]),
+          Math.abs(upR[i] - outs[1][i]),
+        );
+      }
+    }
+    return maxDiff;
+  }
+
+  const burst = (i: number): number =>
+    i === 0 ? AUDIO_NORM : i > 500 && i < 1000 ? Math.sin(i * 0.23) * 2 : 0;
+
+  it("plate preset matches the upstream processor defaults sample-for-sample", async () => {
+    const mix = 0.5;
+    const diff = await maxDivergence({
+      preset: PRESET_PLATE,
+      visible: { preDelay: 0.05, decay: 0.7, damp: 0.3, mix },
+      upstreamParams: {
+        preDelay: [Math.round(0.05 * SR)],
+        bandwidth: [0.9999],
+        inputDiffusion1: [0.75],
+        inputDiffusion2: [0.625],
+        decay: [0.7],
+        decayDiffusion1: [0.7],
+        decayDiffusion2: [0.5],
+        damping: [0.3],
+        excursionRate: [0.5],
+        excursionDepth: [0.7],
+        wet: [mix], // upstream folds ×0.6 into wet, as our Mix does
+        dry: [1 - mix],
+      },
+      blocks: 400, // ~1 s, well into the recirculating tail
+      inAt: burst,
+    });
+    expect(diff).toBeLessThan(1e-6);
+  });
+
+  it("room preset matches upstream with the demo's small-room parameter row", async () => {
+    const mix = 0.4;
+    const diff = await maxDivergence({
+      preset: PRESET_ROOM,
+      visible: { preDelay: 1525 / SR, decay: 0.3226, damp: 0.6446, mix },
+      upstreamParams: {
+        preDelay: [1525],
+        bandwidth: [0.5683],
+        inputDiffusion1: [0.4666],
+        inputDiffusion2: [0.5853],
+        decay: [0.3226],
+        decayDiffusion1: [0.6954],
+        decayDiffusion2: [0.6022],
+        damping: [0.6446],
+        excursionRate: [0],
+        excursionDepth: [0],
+        wet: [mix],
+        dry: [1 - mix],
+      },
+      blocks: 300,
+      inAt: burst,
+    });
+    expect(diff).toBeLessThan(1e-6);
   });
 });
 

@@ -1,18 +1,43 @@
 // Stereo reverb kernel for slug "reverb" (GH #83).
 //
-// Topology: Dattorro-style figure-of-eight tank ("Effect Design Part 1",
-// J. Dattorro, JAES 1997 — published mathematical structure, clean-room
-// implementation, no GPL-derived code, no hardware modeling): per-channel
-// pre-delay → bandwidth one-pole lowpass → 4 series input-diffusion allpasses,
-// injected into a two-branch recirculating tank (modulated allpass → delay →
-// damping lowpass → ×decay → allpass → delay, each branch cross-feeding the
-// other), with the stereo outputs summed from 7 decorrelated taps per side.
+// DSP core adapted from khoin/DattorroReverbNode
+// (https://github.com/khoin/DattorroReverbNode, `dattorroReverb.js`), a
+// WebAudio implementation of Jon Dattorro, "Effect Design Part 1: Reverberator
+// and Other Filters" (JAES 1997). Upstream license (kept verbatim):
+//
+//   In jurisdictions that recognize copyright laws, this software is to
+//   be released into the public domain.
+//   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+//   THE AUTHOR(S) SHALL NOT BE LIABLE FOR ANYTHING, ARISING FROM, OR IN
+//   CONNECTION WITH THE SOFTWARE OR THE DISTRIBUTION OF THE SOFTWARE.
+//
+// The port preserves the upstream topology and constants exactly: the same
+// 12 delay lines with second-denominated lengths, the same four-allpass input
+// diffusion chain, the same two cross-coupled tank loops with cubic-
+// interpolated modulated allpasses (detuned 6.2800/6.2847 rad excursion
+// oscillators), the same 14-tap stereo output matrix, and the same mono tank
+// feed (0.5·(L+R) — every preset is mono-fed, stereo-out, per upstream).
+// Differences from upstream, all at the integration boundary:
+//   - Reshaped from an AudioWorkletProcessor into the Patcha Mama Kernel
+//     contract (init/process, shared write counter, write-relative reads).
+//   - Size (not an upstream parameter): scales the eight TANK delay/tap read
+//     lengths by SIZE_MIN_FACTOR..1. At Size = 1 — where every preset sits —
+//     the read lengths are upstream's exactly. Moving Size re-points reads
+//     (coarse pitch warble while turning is accepted v1 behavior).
+//   - One Mix knob instead of upstream's wet/dry pair: dry = 1 − mix,
+//     wet = mix · WET_SCALE (upstream folds the same 0.6 into its wet gain).
+//     Mix = 0 is bit-exact dry.
+//   - Decay is capped below 1 (no freeze — out of scope per GH #83) and
+//     "Time CV" (seed group "Decay") adds to it per sample, ±CV_BIPOLAR_MAX
+//     spanning the full range.
+//   - Params/inputs are NaN/Infinity-guarded and the two tank injection sums
+//     are hard-clamped (±REVERB_STATE_LIMIT_V, numerical safety only) — with
+//     loop gain < 1 the tank is unconditionally stable.
 //
 // Jack layout (seed declaration order):
 //   ins[0] = In L     — audio input; null → mono-normalled from In R
 //   ins[1] = In R     — audio input; null → mono-normalled from In L
-//   ins[2] = Time CV  — decay CV (seed group "Decay"); null → 0 V;
-//                       ±CV_BIPOLAR_MAX spans the full 0..1 Decay range
+//   ins[2] = Time CV  — decay CV; null → 0 V
 //   outs[0] = Out L   outs[1] = Out R
 //   params[0] = Preset   (positions: 0 Room, 1 Hall, 2 Plate)
 //   params[1] = PreDelay (0..0.25 s, linear)
@@ -21,103 +46,85 @@
 //
 // Preset semantics: the kernel receives the preset ONLY as the numeric switch
 // index — never a name — and uses it to index the hidden per-preset tables
-// below (input/decay diffusion gains, bandwidth, tank modulation, input mode).
-// The five visible params arrive as ordinary numeric params; the UI batch-sets
-// them when the switch changes (web/src/audio/modules/reverbPresets.ts).
-//
-// Input modes (hidden, per preset): Room/Hall are stereo-fed — the L channel
-// injects into tank branch A and R into branch B. Plate is mono-fed — both
-// branches receive 0.5·(L+R), the classic mono-in plate model — but the output
-// taps always straddle both branches, so every mode is stereo out.
-//
-// Size scales every tank delay/tap length by SIZE_MIN_FACTOR..1 (buffers are
-// allocated for Size = 1 in init; per-block integer rescale, so a moving Size
-// knob shifts read taps — a coarse pitch warble while turning is accepted v1
-// behavior). Decay maps to a loop gain strictly below 1 (DECAY_GAIN_MAX), and
-// the branch feedback sum is hard-clamped (±REVERB_STATE_LIMIT_V, numerical
-// safety only), so the tank is unconditionally stable and cannot propagate
-// NaN/Infinity: non-finite inputs read as 0, non-finite params fall back to
-// their spec default upstream (interpreter clamp) and are re-guarded here.
+// below (upstream's bandwidth/diffusion/excursion parameters). The five
+// visible params arrive as ordinary numeric params; the UI batch-sets them
+// when the switch changes (web/src/audio/modules/reverbPresets.ts).
 
 import type { Kernel } from "../engine/kernel";
 import { CV_BIPOLAR_MAX } from "../engine/units";
 
 // ── Hidden per-preset DSP tables (index = Preset switch position) ────────────
-// Companion to REVERB_PRESET_VISIBLE in reverbPresets.ts (kept there for the
-// UI; kept here for the kernel so the import graph stays acyclic). Values are
-// initial musical guesses per GH #83.        Room   Hall   Plate
-const PRE_DIFFUSE_1 = [0.55, 0.75, 0.85]; // input diffusion stage 1 gain
-const PRE_DIFFUSE_2 = [0.45, 0.65, 0.75]; // input diffusion stage 2 gain
-const DECAY_DIFFUSE_1 = [0.55, 0.7, 0.8]; // tank diffusion 1 gain (negated)
-const DECAY_DIFFUSE_2 = [0.35, 0.5, 0.6]; // tank diffusion 2 gain
-const BANDWIDTH = [0.95, 0.85, 0.9]; // input one-pole lowpass coefficient
-const MOD_RATE_HZ = [0.5, 1.0, 1.8]; // tank allpass modulation rate
-const MOD_DEPTH_S = [0.0002, 0.0006, 0.0009]; // tank allpass modulation depth
-const MONO_INPUT = [0, 0, 1]; // 1 = mono-fed tank (plate)
+// Values are lifted from the upstream demo's own preset rows (index.html):
+// Room = "small non-empty room", Hall = "big empty church", Plate = the
+// processor defaults (= the Dattorro paper's plate). The matching VISIBLE
+// values live in REVERB_PRESET_VISIBLE (reverbPresets.ts; kept there for the
+// UI, here for the kernel, so the import graph stays acyclic).
+//                            Room    Hall    Plate
+const BANDWIDTH = [0.5683, 0.928, 0.9999]; // input one-pole lowpass coefficient
+const INPUT_DIFFUSION_1 = [0.4666, 0.7331, 0.75]; // pre-tank allpass 1+2 gain
+const INPUT_DIFFUSION_2 = [0.5853, 0.4534, 0.625]; // pre-tank allpass 3+4 gain
+const DECAY_DIFFUSION_1 = [0.6954, 0.7839, 0.7]; // tank modulated-allpass gain
+const DECAY_DIFFUSION_2 = [0.6022, 0.1992, 0.5]; // tank second-allpass gain
+const EXCURSION_RATE_HZ = [0, 0, 0.5]; // tank allpass modulation rate
+const EXCURSION_DEPTH_MS = [0, 0, 0.7]; // tank allpass modulation depth
 
-// ── Reverb design constants (module-local; not signal-standard values) ──────
+// ── Design constants ─────────────────────────────────────────────────────────
 const PRESET_COUNT = 3;
 const PRE_DELAY_MAX_S = 0.25; // must cover the PreDelay ParamSpec max
-const SIZE_MIN_FACTOR = 0.25; // tank scale at Size = 0
-const DECAY_GAIN_MIN = 0.2; // loop gain at Decay = 0
-const DECAY_GAIN_MAX = 0.98; // loop gain at Decay = 1 — strictly < 1
-const DAMP_COEF_MAX = 0.99; // damping one-pole coefficient at Damp = 1
-const OUT_TAP_GAIN = 0.6; // wet output tap weighting (Dattorro)
+const SIZE_MIN_FACTOR = 0.25; // tank scale at Size = 0 (our extension)
+const DECAY_MAX = 0.98; // loop gain cap — strictly < 1, no freeze
+const WET_SCALE = 0.6; // upstream's wet gain fold-in
 const REVERB_STATE_LIMIT_V = 100; // tank hard clamp — numerical safety only
-const TWO_PI = 2 * Math.PI;
+// Upstream's detuned excursion oscillators (intentionally ≠ 2π and unequal).
+const EXC_RAD_L = 6.28;
+const EXC_RAD_R = 6.2847;
 // Shared sample counter wrap: a power of two that every line mask divides.
 const COUNTER_WRAP = 1 << 30;
 
-// Reference sample rate the length tables below are expressed at (Dattorro's
-// 29.761 kHz); init() rescales everything to the environment rate.
-const REF_SR = 29761;
-
-// Line indices into ReverbState.bufs/masks/baseLen/len.
-//  0..3  pre-diffusion allpasses, channel A     4..7  same, channel B
-//  8..11 tank branch A: mod-allpass, delay 1, allpass 2, delay 2
-// 12..15 tank branch B: mod-allpass, delay 1, allpass 2, delay 2
-// 16..17 pre-delay L / R
-const LINE_COUNT = 18;
-const TANK_FIRST = 8;
-const TANK_LAST = 15;
-// Lengths in samples at REF_SR. Channel B pre-diffusion uses nearby (coprime)
-// lengths so a genuinely stereo input decorrelates without a second topology.
-const LINE_LEN_REF = [
-  142, 107, 379, 277, // pre-diffusion A (Dattorro input diffusers)
-  150, 113, 399, 293, // pre-diffusion B (detuned siblings)
-  672, 4453, 1800, 3720, // tank A
-  908, 4217, 2656, 3163, // tank B
+// The 12 upstream delay lines, lengths in SECONDS (paper values converted by
+// upstream's Conversion.xlsx; effective delay per line is round(s·sr) − 1).
+//  0..3  input diffusion allpasses 1..4
+//  4..7  left tank loop: modulated allpass, delay, allpass, delay
+//  8..11 right tank loop: modulated allpass, delay, allpass, delay
+const LINE_COUNT = 12;
+const TANK_FIRST = 4;
+const LINE_LEN_S = [
+  0.004771345, 0.003595309, 0.012734787, 0.009307483,
+  0.022579886, 0.149625349, 0.060481839, 0.1249958,
+  0.030509727, 0.141695508, 0.089244313, 0.106280031,
 ];
 
-// Output taps: (line, length at REF_SR, sign) triplets summed per channel.
-const TAP_L_LINE = [13, 13, 14, 15, 9, 10, 11];
-const TAP_L_REF = [266, 2974, 1913, 1996, 1990, 187, 1066];
-const TAP_L_SIGN = [1, 1, -1, 1, -1, -1, -1];
-const TAP_R_LINE = [9, 9, 10, 11, 13, 14, 15];
-const TAP_R_REF = [353, 3627, 1228, 2673, 2111, 335, 121];
-const TAP_R_SIGN = [1, 1, -1, 1, -1, -1, -1];
+// Upstream's 14 output taps, in SECONDS. A tap value is an offset from the
+// line's read end: effective tap delay = lineDelay − round(tap·sr).
 const TAP_COUNT = 7;
+const TAP_L_LINE = [9, 9, 10, 11, 5, 6, 7];
+const TAP_L_S = [0.008937872, 0.099929438, 0.064278754, 0.067067639, 0.066866033, 0.006283391, 0.035818689];
+const TAP_L_SIGN = [1, 1, -1, 1, -1, -1, -1];
+const TAP_R_LINE = [5, 5, 6, 7, 9, 10, 11];
+const TAP_R_S = [0.011861161, 0.121870905, 0.041262054, 0.08981553, 0.070931756, 0.011256342, 0.004065724];
+const TAP_R_SIGN = [1, 1, -1, 1, -1, -1, -1];
 
 interface ReverbState {
   sr: number;
   bufs: Float32Array[];
   masks: Int32Array;
-  /** Per-line length in samples at this sr, before Size scaling. */
-  baseLen: Float32Array;
-  /** Per-line integer length for the current block (Size-scaled tank). */
+  /** Per-line effective delay in samples at this sr (upstream's len − 1). */
+  baseLen: Int32Array;
+  /** Per-line Size-scaled integer delay for the current block. */
   len: Int32Array;
-  /** Output tap offsets at this sr (unscaled) and per-block scaled ints. */
-  tapBaseL: Float32Array;
-  tapBaseR: Float32Array;
+  /** Tap base delays (lineDelay − tap) at this sr, and per-block scaled ints. */
+  tapBaseL: Int32Array;
+  tapBaseR: Int32Array;
   tapL: Int32Array;
   tapR: Int32Array;
-  /** Shared write counter: line writes at t & mask, reads at (t − len) & mask. */
+  preDelayBuf: Float32Array;
+  preDelayMask: number;
+  /** Shared write counter: line writes at t & mask, reads at (t − delay) & mask. */
   t: number;
-  modPhase: number;
-  bwA: number; // input bandwidth lowpass state, channel A
-  bwB: number;
-  dampA: number; // tank damping lowpass state, branch A
-  dampB: number;
+  excPhase: number;
+  lp1: number; // input bandwidth lowpass (upstream _lp1)
+  lp2: number; // left tank damping lowpass (upstream _lp2)
+  lp3: number; // right tank damping lowpass (upstream _lp3)
 }
 
 const pow2Above = (n: number): number => {
@@ -126,39 +133,55 @@ const pow2Above = (n: number): number => {
   return p;
 };
 
+// Upstream's cubic interpolation (O. Niemitalo, via musicdsp.org) — a direct
+// port of readDelayCAt. `L` is the line's (Size-scaled) base delay and `i` the
+// excursion offset toward the write head, exactly as upstream: the four
+// points sit at positions (read + ⌊i⌋ − 1 .. + 2), i.e. write-relative
+// t − L + ⌊i⌋ − 1 onward, and frac interpolates from x1 toward x2.
+function cubicReadAt(
+  buf: Float32Array,
+  mask: number,
+  t: number,
+  L: number,
+  i: number,
+): number {
+  const ii = Math.floor(i);
+  const frac = i - ii;
+  const base = t - L + ii - 1;
+  const x0 = buf[base & mask];
+  const x1 = buf[(base + 1) & mask];
+  const x2 = buf[(base + 2) & mask];
+  const x3 = buf[(base + 3) & mask];
+  const a = (3 * (x1 - x2) - x0 + x3) / 2;
+  const b = 2 * x2 + x0 - (5 * x1 + x3) / 2;
+  const c = (x2 - x0) / 2;
+  return ((a * frac + b) * frac + c) * frac + x1;
+}
+
 export const reverbKernel: Kernel<ReverbState> = {
   init(sr): ReverbState {
-    const srk = sr / REF_SR;
-    const maxModSamples = Math.ceil(MOD_DEPTH_S[PRESET_COUNT - 1] * sr) + 4;
-
     const bufs: Float32Array[] = [];
     const masks = new Int32Array(LINE_COUNT);
-    const baseLen = new Float32Array(LINE_COUNT);
+    const baseLen = new Int32Array(LINE_COUNT);
     const len = new Int32Array(LINE_COUNT);
-    for (let li = 0; li < LINE_COUNT - 2; li++) {
-      baseLen[li] = LINE_LEN_REF[li] * srk;
-      // Modulated tank allpasses (lines 8 and 12) need headroom for the
-      // excursion; everything else only ever reads at ≤ its base length.
-      const isModAp = li === 8 || li === 12;
-      const size = pow2Above(Math.ceil(baseLen[li]) + (isModAp ? maxModSamples : 2));
+    for (let li = 0; li < LINE_COUNT; li++) {
+      const samples = Math.round(LINE_LEN_S[li] * sr);
+      baseLen[li] = samples - 1; // upstream's effective delay is len − 1
+      // +4 headroom covers the cubic interpolator's ⌊d⌋±2 neighbor reads.
+      const size = pow2Above(samples + 4);
       bufs.push(new Float32Array(size));
       masks[li] = size - 1;
-      len[li] = Math.max(1, Math.floor(baseLen[li])); // pre lines keep this forever
-    }
-    for (let li = LINE_COUNT - 2; li < LINE_COUNT; li++) {
-      const size = pow2Above(Math.ceil(PRE_DELAY_MAX_S * sr) + 2);
-      bufs.push(new Float32Array(size));
-      masks[li] = size - 1;
-      baseLen[li] = 0;
-      len[li] = 0;
+      len[li] = baseLen[li];
     }
 
-    const tapBaseL = new Float32Array(TAP_COUNT);
-    const tapBaseR = new Float32Array(TAP_COUNT);
+    const tapBaseL = new Int32Array(TAP_COUNT);
+    const tapBaseR = new Int32Array(TAP_COUNT);
     for (let k = 0; k < TAP_COUNT; k++) {
-      tapBaseL[k] = TAP_L_REF[k] * srk;
-      tapBaseR[k] = TAP_R_REF[k] * srk;
+      tapBaseL[k] = baseLen[TAP_L_LINE[k]] - Math.round(TAP_L_S[k] * sr);
+      tapBaseR[k] = baseLen[TAP_R_LINE[k]] - Math.round(TAP_R_S[k] * sr);
     }
+
+    const pdSize = pow2Above(Math.ceil(PRE_DELAY_MAX_S * sr) + 2);
 
     return {
       sr,
@@ -170,12 +193,13 @@ export const reverbKernel: Kernel<ReverbState> = {
       tapBaseR,
       tapL: new Int32Array(TAP_COUNT),
       tapR: new Int32Array(TAP_COUNT),
+      preDelayBuf: new Float32Array(pdSize),
+      preDelayMask: pdSize - 1,
       t: 0,
-      modPhase: 0,
-      bwA: 0,
-      bwB: 0,
-      dampA: 0,
-      dampB: 0,
+      excPhase: 0,
+      lp1: 0,
+      lp2: 0,
+      lp3: 0,
     };
   },
 
@@ -186,7 +210,7 @@ export const reverbKernel: Kernel<ReverbState> = {
     const outL = outs[0];
     const outR = outs[1];
 
-    // --- Guard params (block rate) ---
+    // --- Guard params (block rate; upstream is k-rate too) ---
     let presetF = params[0];
     if (!Number.isFinite(presetF)) presetF = 0;
     let preset = Math.round(presetF);
@@ -196,7 +220,7 @@ export const reverbKernel: Kernel<ReverbState> = {
     let preDelayS = params[1];
     if (!Number.isFinite(preDelayS) || preDelayS < 0) preDelayS = 0;
     else if (preDelayS > PRE_DELAY_MAX_S) preDelayS = PRE_DELAY_MAX_S;
-    const preDelaySamples = Math.round(preDelayS * state.sr);
+    const pd = Math.round(preDelayS * state.sr);
 
     let size = params[2];
     if (!Number.isFinite(size) || size < 0) size = 0;
@@ -209,46 +233,48 @@ export const reverbKernel: Kernel<ReverbState> = {
     let damp = params[4];
     if (!Number.isFinite(damp) || damp < 0) damp = 0;
     else if (damp > 1) damp = 1;
-    const dampCoef = damp * DAMP_COEF_MAX;
+    const dp = 1 - damp; // upstream: dp = 1 − damping
 
     let mix = params[5];
     if (!Number.isFinite(mix) || mix < 0) mix = 0;
     else if (mix > 1) mix = 1;
+    const dry = 1 - mix;
+    const wet = mix * WET_SCALE;
 
-    // --- Hidden per-preset values ---
-    const gPre1 = PRE_DIFFUSE_1[preset];
-    const gPre2 = PRE_DIFFUSE_2[preset];
-    const gTank1 = -DECAY_DIFFUSE_1[preset]; // Dattorro decay diffusion 1 is negative
-    const gTank2 = DECAY_DIFFUSE_2[preset];
+    // --- Hidden per-preset values (upstream parameter names) ---
     const bw = BANDWIDTH[preset];
-    const modInc = (TWO_PI * MOD_RATE_HZ[preset]) / state.sr;
-    const modDepth = MOD_DEPTH_S[preset] * state.sr;
-    const monoIn = MONO_INPUT[preset] === 1;
+    const fi = INPUT_DIFFUSION_1[preset];
+    const si = INPUT_DIFFUSION_2[preset];
+    const ft = DECAY_DIFFUSION_1[preset];
+    const st = DECAY_DIFFUSION_2[preset];
+    const ex = EXCURSION_RATE_HZ[preset] / state.sr;
+    const ed = (EXCURSION_DEPTH_MS[preset] * state.sr) / 1000;
 
-    // --- Size-scale the tank lengths and output taps for this block ---
+    // --- Size-scale the tank delays and output taps for this block ---
     const bufs = state.bufs;
     const masks = state.masks;
     const len = state.len;
     const szK = SIZE_MIN_FACTOR + size * (1 - SIZE_MIN_FACTOR);
-    for (let li = TANK_FIRST; li <= TANK_LAST; li++) {
-      const l = Math.floor(state.baseLen[li] * szK);
-      len[li] = l < 1 ? 1 : l;
+    for (let li = TANK_FIRST; li < LINE_COUNT; li++) {
+      const l = Math.round(state.baseLen[li] * szK);
+      len[li] = l < 2 ? 2 : l;
     }
     const tapL = state.tapL;
     const tapR = state.tapR;
     for (let k = 0; k < TAP_COUNT; k++) {
-      const tl = Math.floor(state.tapBaseL[k] * szK);
+      const tl = Math.round(state.tapBaseL[k] * szK);
       tapL[k] = tl < 1 ? 1 : tl;
-      const tr = Math.floor(state.tapBaseR[k] * szK);
+      const tr = Math.round(state.tapBaseR[k] * szK);
       tapR[k] = tr < 1 ? 1 : tr;
     }
 
+    const pdBuf = state.preDelayBuf;
+    const pdMask = state.preDelayMask;
     let t = state.t;
-    let modPhase = state.modPhase;
-    let bwA = state.bwA;
-    let bwB = state.bwB;
-    let dampA = state.dampA;
-    let dampB = state.dampB;
+    let excPhase = state.excPhase;
+    let lp1 = state.lp1;
+    let lp2 = state.lp2;
+    let lp3 = state.lp3;
 
     for (let i = 0; i < n; i++) {
       // Inputs, mono-normalled: one patched channel feeds both sides.
@@ -267,147 +293,96 @@ export const reverbKernel: Kernel<ReverbState> = {
       if (inL === null) dryL = dryR;
 
       // Decay CV (seed jack "Time CV", group "Decay"): a ±CV_BIPOLAR_MAX
-      // signal spans the full 0..1 Decay range on top of the knob.
+      // signal spans the full 0..1 Decay range on top of the knob. Capped at
+      // DECAY_MAX (< 1): freeze is out of scope (GH #83).
       let decay01 = baseDecay;
       if (inDecayCV !== null) {
         const v = inDecayCV[i];
         if (Number.isFinite(v)) decay01 += v / CV_BIPOLAR_MAX;
       }
       if (decay01 < 0) decay01 = 0;
-      else if (decay01 > 1) decay01 = 1;
-      const decayGain = DECAY_GAIN_MIN + decay01 * (DECAY_GAIN_MAX - DECAY_GAIN_MIN);
+      else if (decay01 > DECAY_MAX) decay01 = DECAY_MAX;
+      const dc = decay01;
 
-      // Pre-delay (wet path only).
-      bufs[16][t & masks[16]] = dryL;
-      bufs[17][t & masks[17]] = dryR;
-      const pdL = bufs[16][(t - preDelaySamples) & masks[16]];
-      const pdR = bufs[17][(t - preDelaySamples) & masks[17]];
+      // Pre-delay on the mono tank feed (upstream downmixes 0.5·(L+R)).
+      pdBuf[t & pdMask] = 0.5 * (dryL + dryR);
+      const pdOut = pdBuf[(t - pd) & pdMask];
 
-      // Tank feed: plate sums to mono before the tank; room/hall stay stereo.
-      let feedA;
-      let feedB;
-      if (monoIn) {
-        feedA = 0.5 * (pdL + pdR);
-        feedB = feedA;
-      } else {
-        feedA = pdL;
-        feedB = pdR;
-      }
+      // Input bandwidth lowpass (upstream: lp1 += bw·(x − lp1)).
+      lp1 += bw * (pdOut - lp1);
 
-      // Input bandwidth lowpass: y = bw·x + (1 − bw)·y.
-      bwA = bw * feedA + (1 - bw) * bwA;
-      bwB = bw * feedB + (1 - bw) * bwB;
+      // Pre-tank: four series input-diffusion allpasses across lines 0..3,
+      // written exactly as upstream's chained writeDelay/readDelay form
+      // (wN is the value written to line N; dN its delayed read).
+      const d0 = bufs[0][(t - len[0]) & masks[0]];
+      const d1 = bufs[1][(t - len[1]) & masks[1]];
+      const d2 = bufs[2][(t - len[2]) & masks[2]];
+      const d3 = bufs[3][(t - len[3]) & masks[3]];
+      const w0 = lp1 - fi * d0;
+      bufs[0][t & masks[0]] = w0;
+      const w1 = fi * (w0 - d1) + d0;
+      bufs[1][t & masks[1]] = w1;
+      const w2 = fi * w1 + d1 - si * d2;
+      bufs[2][t & masks[2]] = w2;
+      const w3 = si * (w2 - d3) + d2;
+      bufs[3][t & masks[3]] = w3;
+      const split = si * w3 + d3;
 
-      // Input diffusion: 4 series allpasses per channel (lattice form:
-      // w = x + g·w[t−D]; y = w[t−D] − g·w). Stage gains g1,g1,g2,g2.
-      let injA = bwA;
-      for (let k = 0; k < 4; k++) {
-        const buf = bufs[k];
-        const mask = masks[k];
-        const wD = buf[(t - len[k]) & mask];
-        const g = k < 2 ? gPre1 : gPre2;
-        const w = injA + g * wD;
-        buf[t & mask] = w;
-        injA = wD - g * w;
-      }
-      let injB = bwB;
-      for (let k = 4; k < 8; k++) {
-        const buf = bufs[k];
-        const mask = masks[k];
-        const wD = buf[(t - len[k]) & mask];
-        const g = k < 6 ? gPre1 : gPre2;
-        const w = injB + g * wD;
-        buf[t & mask] = w;
-        injB = wD - g * w;
-      }
+      // Excursions (upstream's detuned cos/sin pair from one phase).
+      const excL = ed * (1 + Math.cos(excPhase * EXC_RAD_L));
+      const excR = ed * (1 + Math.sin(excPhase * EXC_RAD_R));
 
-      // Cross-feedback: each branch input takes the OTHER branch's final
-      // delay output (previous samples — reads precede this sample's writes).
-      const fbFromB = bufs[15][(t - len[15]) & masks[15]];
-      const fbFromA = bufs[11][(t - len[11]) & masks[11]];
+      // ── Left tank loop (lines 4..7; cross-fed from line 11) ────────────
+      const ap4 = cubicReadAt(bufs[4], masks[4], t, len[4], excL);
+      let tank = split + dc * bufs[11][(t - len[11]) & masks[11]] + ft * ap4;
+      if (tank > REVERB_STATE_LIMIT_V) tank = REVERB_STATE_LIMIT_V;
+      else if (tank < -REVERB_STATE_LIMIT_V) tank = -REVERB_STATE_LIMIT_V;
+      bufs[4][t & masks[4]] = tank;
+      bufs[5][t & masks[5]] = ap4 - ft * tank;
+      lp2 += dp * (bufs[5][(t - len[5]) & masks[5]] - lp2);
+      const d6 = bufs[6][(t - len[6]) & masks[6]];
+      const w6 = dc * lp2 - st * d6;
+      bufs[6][t & masks[6]] = w6;
+      bufs[7][t & masks[7]] = d6 + st * w6;
 
-      const modSin = Math.sin(modPhase);
-      modPhase += modInc;
-      if (modPhase > TWO_PI) modPhase -= TWO_PI;
+      // ── Right tank loop (lines 8..11; cross-fed from line 7) ───────────
+      const ap8 = cubicReadAt(bufs[8], masks[8], t, len[8], excR);
+      let tankR = split + dc * bufs[7][(t - len[7]) & masks[7]] + ft * ap8;
+      if (tankR > REVERB_STATE_LIMIT_V) tankR = REVERB_STATE_LIMIT_V;
+      else if (tankR < -REVERB_STATE_LIMIT_V) tankR = -REVERB_STATE_LIMIT_V;
+      bufs[8][t & masks[8]] = tankR;
+      bufs[9][t & masks[9]] = ap8 - ft * tankR;
+      lp3 += dp * (bufs[9][(t - len[9]) & masks[9]] - lp3);
+      const d10 = bufs[10][(t - len[10]) & masks[10]];
+      const w10 = dc * lp3 - st * d10;
+      bufs[10][t & masks[10]] = w10;
+      bufs[11][t & masks[11]] = d10 + st * w10;
 
-      // ── Tank branch A ──────────────────────────────────────────────────
-      let xA = injA + decayGain * fbFromB;
-      if (xA > REVERB_STATE_LIMIT_V) xA = REVERB_STATE_LIMIT_V;
-      else if (xA < -REVERB_STATE_LIMIT_V) xA = -REVERB_STATE_LIMIT_V;
-      {
-        // Modulated allpass (line 8): fractional read at len + excursion.
-        const off = len[8] + modDepth * (0.5 + 0.5 * modSin);
-        const oi = off | 0;
-        const frac = off - oi;
-        const d0 = bufs[8][(t - oi) & masks[8]];
-        const d1 = bufs[8][(t - oi - 1) & masks[8]];
-        const wD = d0 + frac * (d1 - d0);
-        const w = xA + gTank1 * wD;
-        bufs[8][t & masks[8]] = w;
-        const y = wD - gTank1 * w;
-        // Delay 1 (line 9) → damping lowpass → ×decay.
-        bufs[9][t & masks[9]] = y;
-        const dOut = bufs[9][(t - len[9]) & masks[9]];
-        dampA = dOut + dampCoef * (dampA - dOut);
-        const damped = dampA * decayGain;
-        // Allpass 2 (line 10) → delay 2 (line 11).
-        const wD2 = bufs[10][(t - len[10]) & masks[10]];
-        const w2 = damped + gTank2 * wD2;
-        bufs[10][t & masks[10]] = w2;
-        bufs[11][t & masks[11]] = wD2 - gTank2 * w2;
-      }
-
-      // ── Tank branch B (mirrored; counter-phase modulation) ─────────────
-      let xB = injB + decayGain * fbFromA;
-      if (xB > REVERB_STATE_LIMIT_V) xB = REVERB_STATE_LIMIT_V;
-      else if (xB < -REVERB_STATE_LIMIT_V) xB = -REVERB_STATE_LIMIT_V;
-      {
-        const off = len[12] + modDepth * (0.5 - 0.5 * modSin);
-        const oi = off | 0;
-        const frac = off - oi;
-        const d0 = bufs[12][(t - oi) & masks[12]];
-        const d1 = bufs[12][(t - oi - 1) & masks[12]];
-        const wD = d0 + frac * (d1 - d0);
-        const w = xB + gTank1 * wD;
-        bufs[12][t & masks[12]] = w;
-        const y = wD - gTank1 * w;
-        bufs[13][t & masks[13]] = y;
-        const dOut = bufs[13][(t - len[13]) & masks[13]];
-        dampB = dOut + dampCoef * (dampB - dOut);
-        const damped = dampB * decayGain;
-        const wD2 = bufs[14][(t - len[14]) & masks[14]];
-        const w2 = damped + gTank2 * wD2;
-        bufs[14][t & masks[14]] = w2;
-        bufs[15][t & masks[15]] = wD2 - gTank2 * w2;
-      }
-
-      // Output taps: 7 decorrelated reads per side across both branches.
-      let wetL = 0;
+      // Output taps: upstream's 14-tap stereo matrix.
+      let lo = 0;
       for (let k = 0; k < TAP_COUNT; k++) {
         const li = TAP_L_LINE[k];
-        wetL += TAP_L_SIGN[k] * bufs[li][(t - tapL[k]) & masks[li]];
+        lo += TAP_L_SIGN[k] * bufs[li][(t - tapL[k]) & masks[li]];
       }
-      let wetR = 0;
+      let ro = 0;
       for (let k = 0; k < TAP_COUNT; k++) {
         const li = TAP_R_LINE[k];
-        wetR += TAP_R_SIGN[k] * bufs[li][(t - tapR[k]) & masks[li]];
+        ro += TAP_R_SIGN[k] * bufs[li][(t - tapR[k]) & masks[li]];
       }
-      wetL *= OUT_TAP_GAIN;
-      wetR *= OUT_TAP_GAIN;
 
-      // Mix = 0 is bit-exact dry.
-      outL[i] = dryL + mix * (wetL - dryL);
-      outR[i] = dryR + mix * (wetR - dryR);
+      // Mix = 0 is bit-exact dry (dry = 1, wet = 0).
+      outL[i] = dryL * dry + lo * wet;
+      outR[i] = dryR * dry + ro * wet;
 
+      excPhase += ex;
       t++;
       if (t >= COUNTER_WRAP) t = 0;
     }
 
     state.t = t;
-    state.modPhase = modPhase;
-    state.bwA = bwA;
-    state.bwB = bwB;
-    state.dampA = dampA;
-    state.dampB = dampB;
+    state.excPhase = excPhase;
+    state.lp1 = lp1;
+    state.lp2 = lp2;
+    state.lp3 = lp3;
   },
 };

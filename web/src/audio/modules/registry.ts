@@ -309,20 +309,21 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
     {
       slug: "reverb",
       kernel: reverbKernel,
-      // Dattorro-style stereo tank (see reverb.ts). Preset (Room/Hall/Plate)
-      // travels as a numeric switch index; the kernel derives the hidden
-      // diffusion/bandwidth/modulation values from it, and the UI batch-sets
-      // the five visible knobs on a preset change (reverbPresets.ts / GH #83).
-      // "Time CV" (seed group "Decay") is wired as decay CV. Defaults below
-      // ARE the Room preset (asserted in reverbPresets.test.ts).
+      // Dattorro tank adapted from khoin/DattorroReverbNode (public domain;
+      // see reverb.ts header). Preset (Room/Hall/Plate) travels as a numeric
+      // switch index; the kernel derives the hidden diffusion/bandwidth/
+      // modulation values from it, and the UI batch-sets the five visible
+      // knobs on a preset change (reverbPresets.ts / GH #83). "Time CV" (seed
+      // group "Decay") is wired as decay CV. Defaults below ARE the Room
+      // preset (asserted in reverbPresets.test.ts).
       inJacks: ["In L", "In R", "Time CV"],
       outJacks: ["Out L", "Out R"],
       params: {
         Preset: { min: 0, max: 2, default: 0, curve: "positions", positions: ["Room", "Hall", "Plate"] },
-        PreDelay: { min: 0, max: 0.25, default: 0.015, curve: "linear" },
-        Size: { min: 0, max: 1, default: 0.35, curve: "linear" },
-        Decay: { min: 0, max: 1, default: 0.35, curve: "linear" },
-        Damp: { min: 0, max: 1, default: 0.45, curve: "linear" },
+        PreDelay: { min: 0, max: 0.25, default: 0.032, curve: "linear" },
+        Size: { min: 0, max: 1, default: 1, curve: "linear" },
+        Decay: { min: 0, max: 1, default: 0.32, curve: "linear" },
+        Damp: { min: 0, max: 1, default: 0.64, curve: "linear" },
         Mix: { min: 0, max: 1, default: 0.25, curve: "linear" },
       },
     },
