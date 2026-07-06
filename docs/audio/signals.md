@@ -152,6 +152,17 @@ matching the audio/CV bipolar convention rather than a raw volt² product. An un
 to normal an unpatched input to. Non-finite input samples read as 0 V. No soft-clipping —
 `audio-output` owns final DAC limiting.
 
+## Filter resonance
+
+The state-variable filter (`filter`) maps its linear 0..1 `Res` param exponentially onto
+filter Q — `Q = 0.5 · 40^res`, i.e. 0.5 → 20 — so audible resonance grows evenly across the
+knob, and Q is bounded (the SVF never becomes unstable; max-res ringing decays). The input
+is gain-compensated by `√(k/2)`, capping the worst-case resonant emphasis at
+`√(Q_MAX/2) ≈ 3.2×` (+10 dB): a ±5 V input peaks around ±16 V at full Res. Downstream
+consumers therefore see an audio-scale signal even at maximum resonance — the filter's
+±100 V integrator clamp is a numerical last resort, not the loudness ceiling. Zero-res
+behavior is bit-exact with the uncompensated filter. Full details: `filter.ts` header.
+
 ## Timing
 
 - **Sample rate**: taken from the environment (`AudioContext.sampleRate`) at kernel init.

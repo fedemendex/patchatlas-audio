@@ -8,6 +8,12 @@ import { BLOCK_FRAMES, AUDIO_NORM, CV_BIPOLAR_MAX } from "../engine/units";
 // state safety limit (100 V); values above this indicate runaway.
 const STRESS_OUT_BOUND = 200;
 
+// Musical loudness ceiling for the resonance tests (GH #78). The compensated
+// worst-case resonant emphasis is √(RES_Q_MAX·RES_Q_MIN) ≈ 3.16×, so a ±5 V
+// input peaks around ±16 V at full Res; 4× audio nominal (20 V) leaves margin
+// for modulation transients while staying 5× below FILTER_STATE_LIMIT_V (100 V).
+const MUSICAL_PEAK_BOUND_V = AUDIO_NORM * 4;
+
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
@@ -314,6 +320,262 @@ describe("filterKernel — resonance stability", () => {
 
   it("max resonance at high cutoff (8000 Hz), 3 s render: outputs remain finite", () => {
     expect(stressRender(8000, 3, 0xdeadbeef)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bounded resonance loudness (GH #78)
+// ---------------------------------------------------------------------------
+
+describe("filterKernel — bounded high-res loudness", () => {
+  // Renders `durationSeconds` at Res=1 while sweeping the Cutoff param
+  // exponentially from 20 Hz to 16 kHz, with a caller-supplied input fill.
+  // Returns the max |sample| seen across LP/BP/HP, or Infinity on non-finite.
+  function sweepCutoffPeak(
+    fillInput: (buf: Float32Array, blockIndex: number) => void,
+    durationSeconds: number,
+    opts?: { cvAmt?: number; trackAmt?: number; cutCV?: (buf: Float32Array, blockIndex: number) => void; fm?: (buf: Float32Array, blockIndex: number) => void; track?: (buf: Float32Array, blockIndex: number) => void },
+  ): number {
+    const sr = 48000;
+    const n = BLOCK_FRAMES;
+    const state = filterKernel.init(sr);
+    const inBuf = new Float32Array(n);
+    const trackBuf = opts?.track ? new Float32Array(n) : null;
+    const cutCVBuf = opts?.cutCV ? new Float32Array(n) : null;
+    const fmBuf = opts?.fm ? new Float32Array(n) : null;
+    const outLP = new Float32Array(n);
+    const outBP = new Float32Array(n);
+    const outHP = new Float32Array(n);
+    const params = new Float32Array([20, 1, opts?.cvAmt ?? 0, opts?.trackAmt ?? 0]);
+    const ins: (Float32Array | null)[] = [inBuf, trackBuf, cutCVBuf, fmBuf, null];
+    const outs = [outLP, outBP, outHP];
+
+    const totalBlocks = Math.ceil((durationSeconds * sr) / n);
+    let peak = 0;
+    for (let b = 0; b < totalBlocks; b++) {
+      // Exponential cutoff sweep 20 Hz → 16 kHz across the render.
+      params[0] = 20 * Math.pow(16000 / 20, b / (totalBlocks - 1));
+      fillInput(inBuf, b);
+      if (trackBuf && opts?.track) opts.track(trackBuf, b);
+      if (cutCVBuf && opts?.cutCV) opts.cutCV(cutCVBuf, b);
+      if (fmBuf && opts?.fm) opts.fm(fmBuf, b);
+      filterKernel.process(state, ins, outs, params, n);
+      for (let i = 0; i < n; i++) {
+        if (
+          !Number.isFinite(outLP[i]) ||
+          !Number.isFinite(outBP[i]) ||
+          !Number.isFinite(outHP[i])
+        ) {
+          return Infinity;
+        }
+        const a = Math.abs(outLP[i]);
+        const bAbs = Math.abs(outBP[i]);
+        const c = Math.abs(outHP[i]);
+        if (a > peak) peak = a;
+        if (bAbs > peak) peak = bAbs;
+        if (c > peak) peak = c;
+      }
+    }
+    return peak;
+  }
+
+  function sawFill(freqHz: number, sr = 48000) {
+    let phase = 0;
+    const inc = freqHz / sr;
+    return (buf: Float32Array) => {
+      for (let i = 0; i < buf.length; i++) {
+        buf[i] = (phase * 2 - 1) * AUDIO_NORM;
+        phase += inc;
+        if (phase >= 1) phase -= 1;
+      }
+    };
+  }
+
+  function noiseFill(seedInit: number) {
+    let seed = seedInit;
+    return (buf: Float32Array) => {
+      for (let i = 0; i < buf.length; i++) {
+        seed = (Math.imul(seed, 48271) >>> 0) % 2147483647;
+        if (seed === 0) seed = 1;
+        buf[i] = ((seed / 2147483647) * 2 - 1) * AUDIO_NORM;
+      }
+    };
+  }
+
+  it("saw input at Res=1: full cutoff sweep stays finite and musically bounded", () => {
+    const peak = sweepCutoffPeak(sawFill(110), 3);
+    expect(peak).toBeLessThan(MUSICAL_PEAK_BOUND_V);
+    expect(peak).toBeGreaterThan(0); // sanity: the render was not silent
+  });
+
+  it("noise input at Res=1: full cutoff sweep stays finite and musically bounded", () => {
+    // Regression for the old behavior where resonant energy from sustained
+    // noise rode up to the ±100 V state clamp.
+    const peak = sweepCutoffPeak(noiseFill(0x2468ace0), 3);
+    expect(peak).toBeLessThan(MUSICAL_PEAK_BOUND_V);
+    expect(peak).toBeGreaterThan(0);
+  });
+
+  it("Res=1 with fast LFO Cut CV plus FM plus 1V/Oct tracking stays finite and bounded", () => {
+    const sr = 48000;
+    const n = BLOCK_FRAMES;
+    const cvPhaseInc = (2 * Math.PI * 6) / sr; // 6 Hz ±5 V sweep on Cut CV
+    const fmPhaseInc = (2 * Math.PI * 13) / sr; // 13 Hz ±2 V on FM
+    const trackPhaseInc = (2 * Math.PI * 2) / sr; // 2 Hz ±5 V on 1V/Oct (Track Amt = 1)
+    const peak = sweepCutoffPeak(sawFill(110), 3, {
+      cvAmt: 1,
+      trackAmt: 1,
+      cutCV: (buf, b) => {
+        for (let i = 0; i < n; i++) buf[i] = Math.sin(cvPhaseInc * (b * n + i)) * CV_BIPOLAR_MAX;
+      },
+      fm: (buf, b) => {
+        for (let i = 0; i < n; i++) buf[i] = Math.sin(fmPhaseInc * (b * n + i)) * 2;
+      },
+      track: (buf, b) => {
+        for (let i = 0; i < n; i++) buf[i] = Math.sin(trackPhaseInc * (b * n + i)) * CV_BIPOLAR_MAX;
+      },
+    });
+    expect(peak).toBeLessThan(MUSICAL_PEAK_BOUND_V);
+    expect(peak).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audible resonance progression (GH #78)
+// ---------------------------------------------------------------------------
+
+describe("filterKernel — audible resonance progression", () => {
+  it("BP peak at cutoff grows monotonically with clearly separated steps, no dead zone below 0.5", () => {
+    // Sine probe at the cutoff frequency: BP-at-cutoff gain is Q·comp,
+    // which the exponential curve makes grow by a constant ratio (~1.59×)
+    // per quarter turn.
+    const at = (res: number) =>
+      probeSteadySine({ cutoffHz: 1000, res, freqHz: 1000 }).bp;
+
+    const r0 = at(0);
+    const r25 = at(0.25);
+    const r50 = at(0.5);
+    const r75 = at(0.75);
+    const r100 = at(1.0);
+
+    // Clearly separated monotonic steps (theory ratio ≈ 1.59; require ≥ 1.25).
+    expect(r25).toBeGreaterThan(r0 * 1.25);
+    expect(r50).toBeGreaterThan(r25 * 1.25);
+    expect(r75).toBeGreaterThan(r50 * 1.25);
+    expect(r100).toBeGreaterThan(r75 * 1.25);
+
+    // No flat bottom half: by noon the resonant peak has at least doubled.
+    expect(r50).toBeGreaterThan(r0 * 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Zero-res preservation (GH #78)
+// ---------------------------------------------------------------------------
+
+describe("filterKernel — zero-res preservation", () => {
+  it("at Res=0 the LP passband is still unity gain (no gain compensation applied)", () => {
+    // 375 Hz = exactly one cycle per 128-sample block at 48 kHz, so the block
+    // RMS is a true full-cycle RMS; cutoff sits >3 octaves above the probe.
+    const inputRms = AUDIO_NORM / Math.SQRT2;
+    const { lp } = probeSteadySine({ cutoffHz: 4000, res: 0, freqHz: 375 });
+    expect(lp).toBeGreaterThan(inputRms * 0.9);
+    expect(lp).toBeLessThan(inputRms * 1.1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Self-oscillation / no-input sanity (GH #78)
+// ---------------------------------------------------------------------------
+
+describe("filterKernel — max-res ringing with no input", () => {
+  it("ringing after an excitation burst stays finite, bounded, and does not grow", () => {
+    const sr = 48000;
+    const n = BLOCK_FRAMES;
+    const state = filterKernel.init(sr);
+    const inBuf = new Float32Array(n);
+    const outLP = new Float32Array(n);
+    const outBP = new Float32Array(n);
+    const outHP = new Float32Array(n);
+    const params = new Float32Array([1000, 1, 0, 0]);
+    const ins: (Float32Array | null)[] = [inBuf, null, null, null, null];
+    const outs = [outLP, outBP, outHP];
+
+    // Excite: 20 blocks of a ±5 V sine at the cutoff frequency.
+    const phaseInc = (2 * Math.PI * 1000) / sr;
+    for (let b = 0; b < 20; b++) {
+      for (let i = 0; i < n; i++) inBuf[i] = Math.sin(phaseInc * (b * n + i)) * AUDIO_NORM;
+      filterKernel.process(state, ins, outs, params, n);
+    }
+
+    // Ring: 100 blocks of silence.
+    inBuf.fill(0);
+    let firstRingRms = 0;
+    let lastRingRms = 0;
+    for (let b = 0; b < 100; b++) {
+      filterKernel.process(state, ins, outs, params, n);
+      for (let i = 0; i < n; i++) {
+        expect(Number.isFinite(outLP[i])).toBe(true);
+        expect(Number.isFinite(outBP[i])).toBe(true);
+        expect(Number.isFinite(outHP[i])).toBe(true);
+        expect(Math.abs(outBP[i])).toBeLessThan(MUSICAL_PEAK_BOUND_V);
+      }
+      if (b === 0) firstRingRms = rms(outBP);
+      if (b === 99) lastRingRms = rms(outBP);
+    }
+
+    // Bounded Q (no true self-oscillation): the ring must decay, never grow.
+    expect(lastRingRms).toBeLessThan(firstRingRms * 0.5 + 1e-9);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Res CV safety at high resonance (GH #78)
+// ---------------------------------------------------------------------------
+
+describe("filterKernel — Res CV safety at high resonance", () => {
+  function runWithResCv(resCVValue: number): number {
+    const sr = 48000;
+    const n = BLOCK_FRAMES;
+    const state = filterKernel.init(sr);
+    const inBuf = new Float32Array(n);
+    const resCVBuf = new Float32Array(n).fill(resCVValue);
+    const outLP = new Float32Array(n);
+    const outBP = new Float32Array(n);
+    const outHP = new Float32Array(n);
+    const params = new Float32Array([1000, 1, 0, 0]);
+    const ins: (Float32Array | null)[] = [inBuf, null, null, null, resCVBuf];
+    const outs = [outLP, outBP, outHP];
+    const phaseInc = (2 * Math.PI * 1000) / sr;
+    let peak = 0;
+    for (let b = 0; b < 100; b++) {
+      for (let i = 0; i < n; i++) inBuf[i] = Math.sin(phaseInc * (b * n + i)) * AUDIO_NORM;
+      filterKernel.process(state, ins, outs, params, n);
+      for (let i = 0; i < n; i++) {
+        if (
+          !Number.isFinite(outLP[i]) ||
+          !Number.isFinite(outBP[i]) ||
+          !Number.isFinite(outHP[i])
+        ) {
+          return Infinity;
+        }
+        const m = Math.max(Math.abs(outLP[i]), Math.abs(outBP[i]), Math.abs(outHP[i]));
+        if (m > peak) peak = m;
+      }
+    }
+    return peak;
+  }
+
+  it("Res=1 plus massively overrange Res CV (+1000 V) clamps and stays bounded", () => {
+    const peak = runWithResCv(1000);
+    expect(peak).toBeLessThan(MUSICAL_PEAK_BOUND_V);
+    expect(peak).toBeGreaterThan(0);
+  });
+
+  it("Res=1 plus NaN Res CV is safe and bounded", () => {
+    const peak = runWithResCv(NaN);
+    expect(peak).toBeLessThan(MUSICAL_PEAK_BOUND_V);
+    expect(peak).toBeGreaterThan(0);
   });
 });
 

@@ -16,11 +16,27 @@
 //   params[2] = CV Amt   (-1..1 bipolar)
 //   params[3] = Track Amt (-1..1 bipolar)
 //
+// Resonance mapping (GH #78): the linear 0..1 Res param maps exponentially onto
+// filter Q — Q = RES_Q_MIN · (RES_Q_MAX/RES_Q_MIN)^res, i.e. 0.5 → 20 — so each
+// knob increment multiplies Q by a constant ratio and audible resonance grows
+// evenly across the whole rotation (a direct k = 2 − 2·res mapping crams the
+// entire audible Q range into the top fifth of the knob). Q is bounded at
+// RES_Q_MAX: max Res rings hard and approaches self-oscillation but k = 1/Q
+// stays > 0, so the SVF remains unconditionally stable and ringing decays.
+//
+// Resonance gain compensation: the input is scaled by comp = √(k/2) (exactly 1
+// at Res = 0), so the resonant peak gain grows as √(Q·RES_Q_MIN) instead of Q —
+// capping the absolute peak gain at √(RES_Q_MAX·RES_Q_MIN) = √10 ≈ 3.2× input
+// (+10 dB) instead of the uncompensated 20× peak at Q = 20. A ±5 V input
+// therefore peaks around ±16 V at full Res, not at the ±100 V state clamp.
+// The trade-off is a Moog-ladder-style passband drop (≈ −16 dB at full Res);
+// relative peak-vs-passband resonance is unaffected.
+//
 // SVF formula (TPT, two integrators, from the published mathematical structure
 // of the topology-preserving bilinear transform state-variable filter):
 //
 //   g  = tan(π · cutoffHz / sr)
-//   k  = 2 − 2·resonance      (k=2 → maximally damped; k=0 → self-oscillation)
+//   k  = 1/Q = 2·(RES_Q_MIN/RES_Q_MAX)^res   (k=2 → maximally damped)
 //   a1 = 1 / (1 + g·(g + k))
 //   a2 = g·a1,  a3 = g·a2
 //
@@ -33,12 +49,11 @@
 //   ic2eq ← 2·LP − ic2eq
 //
 // Integrator-state hard clamp (±FILTER_STATE_LIMIT_V): numerical safety only.
-// Limits state growth during sustained self-oscillation or resonant energy
-// accumulation from continuous noise input. At 100 V (20× audio nominal) this
-// bound does not trigger during normal musical use (res ≤ 0.9 with ±5 V audio).
-// LP/BP/HP outputs are bounded to roughly this scale — a 10 000× improvement over
-// the prior 1 MV limit. Downstream audio-output clips via tanh; downstream CV
-// modules receive at most ~100 V. This is numerical safety, not analog character.
+// With bounded Q and gain compensation the musical worst case sits around
+// ±16 V, so this 100 V clamp is a genuine last-resort guard that never triggers
+// in normal use — it is not the loudness control. Downstream audio-output clips
+// via tanh; downstream CV modules see the compensated (~audio-scale) signal.
+// This is numerical safety, not analog character.
 
 import type { Kernel } from "../engine/kernel";
 import { CV_BIPOLAR_MAX } from "../engine/units";
@@ -47,6 +62,9 @@ import { CV_BIPOLAR_MAX } from "../engine/units";
 const CUTOFF_MIN_HZ = 20;
 const CUTOFF_MAX_FRAC = 0.45; // max cutoff = sr × this (stays below Nyquist)
 const FILTER_STATE_LIMIT_V = 100; // numerical safety bound — see file-header comment
+const RES_Q_MIN = 0.5; // Q at Res=0 → k=2, the maximally damped SVF (unchanged zero-res)
+const RES_Q_MAX = 20; // bounded Q at Res=1 → k=0.05: hard ring, never unstable
+const RES_Q_SHAPE_RATIO = RES_Q_MIN / RES_Q_MAX; // per-sample base of the exponential Res curve
 
 interface FilterState {
   piOverSr: number;   // π / sr — used as tan(piOverSr · f) each sample
@@ -135,8 +153,12 @@ export const filterKernel: Kernel<FilterState> = {
       if (totalRes < 0) totalRes = 0;
       else if (totalRes > 1) totalRes = 1;
 
-      // Damping coefficient: k=2 at res=0, k=0 at res=1.
-      const k = 2 - 2 * totalRes;
+      // Exponential Res → Q curve with bounded max Q (see file-header comment):
+      // qShape = 1 at res=0 → k=2 (bit-exact zero-res); qShape = 0.025 at res=1
+      // → k=0.05 (Q=20). comp = √(k/2) is the resonance gain compensation.
+      const qShape = Math.pow(RES_Q_SHAPE_RATIO, totalRes);
+      const k = 2 * qShape;
+      const comp = Math.sqrt(qShape);
 
       // TPT SVF coefficients.
       const g  = Math.tan(piOverSr * cutoffHz);
@@ -144,11 +166,12 @@ export const filterKernel: Kernel<FilterState> = {
       const a2 = g * a1;
       const a3 = g * a2;
 
-      // Input sample (null or non-finite → 0).
+      // Input sample (null or non-finite → 0), scaled by the resonance
+      // gain compensation.
       let x = 0;
       if (inAudio !== null) {
         const v = inAudio[i];
-        if (Number.isFinite(v)) x = v;
+        if (Number.isFinite(v)) x = v * comp;
       }
 
       // SVF tick.
