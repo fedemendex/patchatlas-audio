@@ -123,20 +123,25 @@ specific hardware LPG. A single follower state (`level`, 0 → 1, "openness") dr
   to the target, never overshooting), otherwise an exponential decay at a fixed ~0.3 s time
   constant. The seed has no Damp/Decay/Response control on this module, so the decay time is
   fixed rather than knob-mapped.
-- Audio path: `amp = level²`, `cutoffHz = 40 + level² × 12000`, run through two cascaded one-pole
-  lowpass stages (12 dB/oct). The filter always runs regardless of `Mode`, so its state stays
-  continuous across a live mode switch.
+- Audio path: `amp = level²`, `cutoffHz = 40 + level³ × 3960`, run through two cascaded one-pole
+  lowpass stages (12 dB/oct). The fully-open cutoff (~4 kHz) sits deliberately inside the audible
+  band so the filtered path colors harmonically rich material even at full level, and the `level³`
+  cutoff curve is steeper than the `level²` amp curve so brightness falls during the loud part of
+  a decay rather than after it — together these are what make the modes audibly distinct and a
+  `Strike` read as a natural pluck that darkens as it fades. The filter always runs regardless of
+  `Mode`, so its state stays continuous across a live mode switch.
 - **`Mode`** (seed switch, positions `VCA` / `LPG` / `Both`, default `Both`) selects which
   combination becomes the output — Patchamama's generic preview semantics, not a claim to match
   any specific hardware convention:
-  - `VCA`: amplitude gate only, `Out = In × amp`. The filter still runs every sample (so its
-    state stays live for a clean transition if `Mode` changes) but is never read for output, so
-    no lowpass coloration reaches `Out`.
-  - `LPG`: the actual low-pass-gate response, `Out = filtered × amp` — both the cutoff and the
-    output amplitude are driven by the same `level`, so closed (`level = 0`) is silent.
-  - `Both`: a parallel 50/50 blend of the VCA and LPG paths, `Out = 0.5 × amp × (In + filtered)` —
-    brighter than `LPG` alone (half the signal skips the filter) but still gated, since `amp`
-    multiplies the whole blend; closed is silent here too.
+  - `VCA`: the bright, amplitude-only gate, `Out = In × amp`. The filter still runs every sample
+    (so its state stays live for a clean transition if `Mode` changes) but is never read for
+    output, so no lowpass coloration reaches `Out`.
+  - `LPG`: the actual low-pass-gate response, `Out = filtered × amp` — clearly darker than `VCA`
+    on rich input because the same vactrol `level` drives both the amplitude and the cutoff, so
+    closed (`level = 0`) is silent.
+  - `Both`: a parallel 50/50 blend of the bright VCA path and the darker LPG path,
+    `Out = 0.5 × amp × (In + filtered)` — brighter than `LPG` alone (half the signal skips the
+    filter) but still gated, since `amp` multiplies the whole blend; closed is silent here too.
   - A filter-only mode (cutoff modulated by `level` with no amplitude multiply) was deliberately
     not offered: since a stable lowpass has unity gain at DC/low frequencies regardless of
     cutoff, a filter-only "closed" state would still pass sustained or low-frequency input

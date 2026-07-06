@@ -59,6 +59,26 @@ function rms(buf: Float32Array, start: number, end: number): number {
   return Math.sqrt(sum / (end - start));
 }
 
+/**
+ * First-difference RMS: a cheap high-band energy proxy (one-sample high-pass).
+ * Robust for comparing brightness between renders without asserting exact
+ * spectra or samples.
+ */
+function diffRms(buf: Float32Array, start: number, end: number): number {
+  let sum = 0;
+  for (let i = start + 1; i < end; i++) {
+    const d = buf[i] - buf[i - 1];
+    sum += d * d;
+  }
+  return Math.sqrt(sum / (end - start - 1));
+}
+
+// Harmonically rich test material: naive 220 Hz saw at ±4 V. Aliasing is
+// irrelevant here — we only compare relative energy between renders of the
+// same signal. A sine cannot reveal lowpass tone differences, so saw is the
+// primary mode-separation material (per the LPG voicing QA follow-up).
+const saw = (i: number) => 4 * (2 * (((i * 220) / SR) % 1) - 1);
+
 describe("seed confirmation", () => {
   it("registry entry matches the seeded low-pass-gate jack/control names", () => {
     const entry = registry.get("low-pass-gate");
@@ -110,10 +130,21 @@ describe("true unpatched CV (null jack, not a 0 V buffer)", () => {
 });
 
 describe("CV patched at a real 0 V buffer (not null)", () => {
-  it("stays closed with In patched and CV explicitly reading 0 V every sample", () => {
-    // Exercises the inCv !== null branch (line-read v === 0), distinct from
-    // the "true unpatched CV" (null jack) case above — both must close the
-    // gate, but only this one actually reads a real sample of 0.
+  // Exercises the inCv !== null branch (line-read v === 0), distinct from
+  // the "true unpatched CV" (null jack) cases above — both must close the
+  // gate, but only these actually read a real sample of 0. Regression guard
+  // across all three modes.
+  it("Mode=VCA stays closed with CV explicitly reading 0 V every sample", () => {
+    const out = render({ totalSamples: 4000, mode: MODE_VCA, inAt: () => 4, cvAt: () => 0 });
+    expect(Math.abs(out[out.length - 1])).toBeLessThan(1e-3);
+  });
+
+  it("Mode=LPG stays closed with CV explicitly reading 0 V every sample", () => {
+    const out = render({ totalSamples: 4000, mode: MODE_LPG, inAt: () => 4, cvAt: () => 0 });
+    expect(Math.abs(out[out.length - 1])).toBeLessThan(1e-3);
+  });
+
+  it("Mode=Both stays closed with CV explicitly reading 0 V every sample", () => {
     const out = render({ totalSamples: 4000, mode: MODE_BOTH, inAt: () => 4, cvAt: () => 0 });
     expect(Math.abs(out[out.length - 1])).toBeLessThan(1e-3);
   });
@@ -131,8 +162,10 @@ describe("CV opens the gate", () => {
   });
 
   it("partial CV attenuates and darkens the signal more than amplitude scaling alone", () => {
-    // A sine well above the half-open cutoff (~3040 Hz) so the filter rolls it
-    // off in addition to the amp multiply.
+    // A sine well above the half-open cutoff (level = 0.5 → 40 + 0.125 × 3960
+    // ≈ 535 Hz) so the filter rolls it off in addition to the amp multiply.
+    // (Sine is fine here: this test isolates roll-off depth at one frequency,
+    // not mode-vs-mode timbre separation.)
     const freqHz = 6000;
     const sine = (i: number) => 4 * Math.sin((2 * Math.PI * freqHz * i) / SR);
 
@@ -144,9 +177,16 @@ describe("CV opens the gate", () => {
     const halfRms = rms(half, 2000, 6000);
     expect(fullRms).toBeGreaterThan(0.5);
 
-    // Naive amplitude-only scaling would give ratio (0.5²) = 0.25; the extra
-    // filter roll-off at the lower cutoff should push the measured ratio
-    // below that.
+    // Regression guard for audible darkening, not an exact voicing lock: the
+    // 0.25 bound is the *analytic amplitude-only prediction* (amp = level² =
+    // 0.5² = 0.25), so any measured ratio below it proves the filter darkens
+    // on top of the amp multiply — with the filter bypassed the ratio would
+    // sit at exactly 0.25, which is why the bound must not be "relaxed"
+    // upward. Under the current voicing (open ≈ 4 kHz, level³ curve) the
+    // ratio measures ≈ 0.22 in Both mode; the margin is inherently modest
+    // here because half of Both's blend bypasses the filter. A future retune
+    // that narrows it further should reconsider the source material or mode,
+    // not the bound.
     const ratio = halfRms / fullRms;
     expect(ratio).toBeGreaterThan(0);
     expect(ratio).toBeLessThan(0.25);
@@ -181,6 +221,45 @@ describe("Strike pluck", () => {
     expect(Math.abs(out[10])).toBeGreaterThan(Math.abs(out[5000]));
     expect(Math.abs(out[5000])).toBeGreaterThan(Math.abs(out[totalSamples - 1]));
     expect(Math.abs(out[totalSamples - 1])).toBeLessThan(0.05);
+  });
+
+  it("pluck on a saw decays in loudness AND brightness together, and is not a one-block blip", () => {
+    // CV genuinely unpatched; one Strike edge at sample 0; rich material so
+    // the brightness trajectory is measurable. Windows are ~50 ms each.
+    const totalSamples = Math.round(1.5 * SR);
+    const out = render({
+      totalSamples,
+      mode: MODE_LPG,
+      inAt: saw,
+      strikeAt: (i) => (i === 0 ? GATE_HIGH_V : 0),
+    });
+
+    const w = Math.round(0.05 * SR); // 50 ms window
+    const early = { start: Math.round(0.01 * SR), end: Math.round(0.01 * SR) + w };
+    const mid = { start: Math.round(0.2 * SR), end: Math.round(0.2 * SR) + w };
+    const late = { start: Math.round(0.5 * SR), end: Math.round(0.5 * SR) + w };
+
+    // Non-silent, and clearly still sounding well past the first block
+    // (BLOCK_FRAMES is ~2.7 ms at 48 kHz — a pluck must far outlive it).
+    const earlyRms = rms(out, early.start, early.end);
+    const midRms = rms(out, mid.start, mid.end);
+    const lateRms = rms(out, late.start, late.end);
+    expect(earlyRms).toBeGreaterThan(0.5);
+    expect(midRms).toBeGreaterThan(0.02); // audible tail at 200 ms, not a blip
+
+    // Loudness decays monotonically across the windows…
+    expect(earlyRms).toBeGreaterThan(midRms);
+    expect(midRms).toBeGreaterThan(lateRms);
+
+    // …and brightness (high-band share of the energy) decays too: the
+    // level³ cutoff curve darkens the sound during the audible part of the
+    // decay, not after it.
+    const earlyBright = diffRms(out, early.start, early.end) / earlyRms;
+    const midBright = diffRms(out, mid.start, mid.end) / midRms;
+    expect(midBright).toBeLessThan(earlyBright * 0.7);
+
+    // …and it does not sustain forever.
+    expect(rms(out, totalSamples - w, totalSamples)).toBeLessThan(0.01);
   });
 
   it("uses Schmitt behavior: sustained high fires once, rearm required before retrigger", () => {
@@ -261,25 +340,55 @@ describe("Mode switch", () => {
     expect(out[out.length - 1]).toBeLessThan(1.2);
   });
 
-  it("Mode distinction: VCA is brightest, LPG is darkest, Both sits measurably between", () => {
-    // A sine well within earshot of the fully-open cutoff (~6 kHz, roughly
-    // half of the 12040 Hz max cutoff), so the LPG's filtering is audible
-    // while VCA (unfiltered) stays untouched.
-    const freqHz = 6000;
-    const sine = (i: number) => 4 * Math.sin((2 * Math.PI * freqHz * i) / SR);
-    const totalSamples = 6000;
+  it("Mode distinction on a saw: LPG has clearly less high-band energy than VCA; Both sits between", () => {
+    // Harmonically rich input (saw) at the same fully-open level in all three
+    // modes; brightness compared via first-difference (high-band) energy.
+    // Fully open the cutoff is ~4 kHz, so LPG mode must audibly darken a saw
+    // even at full level — the core fix of the LPG voicing QA follow-up.
+    const totalSamples = 12000;
 
-    const vcaOut = render({ totalSamples, mode: MODE_VCA, inAt: sine, cvAt: () => CV_UNIPOLAR_MAX });
-    const lpgOut = render({ totalSamples, mode: MODE_LPG, inAt: sine, cvAt: () => CV_UNIPOLAR_MAX });
-    const bothOut = render({ totalSamples, mode: MODE_BOTH, inAt: sine, cvAt: () => CV_UNIPOLAR_MAX });
+    const vcaOut = render({ totalSamples, mode: MODE_VCA, inAt: saw, cvAt: () => CV_UNIPOLAR_MAX });
+    const lpgOut = render({ totalSamples, mode: MODE_LPG, inAt: saw, cvAt: () => CV_UNIPOLAR_MAX });
+    const bothOut = render({ totalSamples, mode: MODE_BOTH, inAt: saw, cvAt: () => CV_UNIPOLAR_MAX });
 
-    // Skip the filter's settling transient.
-    const vcaRms = rms(vcaOut, 2000, totalSamples);
-    const lpgRms = rms(lpgOut, 2000, totalSamples);
-    const bothRms = rms(bothOut, 2000, totalSamples);
+    // Skip the level-rise + filter settling transient.
+    const vcaHf = diffRms(vcaOut, 4000, totalSamples);
+    const lpgHf = diffRms(lpgOut, 4000, totalSamples);
+    const bothHf = diffRms(bothOut, 4000, totalSamples);
 
-    expect(vcaRms).toBeGreaterThan(bothRms);
-    expect(bothRms).toBeGreaterThan(lpgRms);
+    // LPG is *clearly* darker than VCA, not marginally.
+    expect(lpgHf).toBeLessThan(vcaHf * 0.5);
+    // Both sits distinguishably between the two, with margin on both sides.
+    expect(bothHf).toBeLessThan(vcaHf * 0.9);
+    expect(bothHf).toBeGreaterThan(lpgHf * 1.1);
+
+    // Overall loudness stays comparable — the separation is timbral, not a
+    // volume drop (DC-adjacent/low-harmonic content passes in every mode).
+    const vcaRms = rms(vcaOut, 4000, totalSamples);
+    const lpgRms = rms(lpgOut, 4000, totalSamples);
+    expect(lpgRms).toBeGreaterThan(vcaRms * 0.5);
+  });
+
+  it("live Mode switching stays finite and non-explosive while a gated voice plays", () => {
+    // Regression guard for the always-running filter state: cycle Mode every
+    // block while fully open on a saw; output must stay finite and bounded
+    // (no runaway/explosion). Exact per-sample values are not asserted.
+    const state = lowPassGateKernel.init(SR);
+    const inBuf = new Float32Array(BLOCK_FRAMES);
+    const cvBuf = new Float32Array(BLOCK_FRAMES).fill(CV_UNIPOLAR_MAX);
+    const outs = makeOuts();
+    const params = new Float32Array(1);
+
+    const blocks = 60;
+    for (let b = 0; b < blocks; b++) {
+      for (let i = 0; i < BLOCK_FRAMES; i++) inBuf[i] = saw(b * BLOCK_FRAMES + i);
+      params[0] = b % 3; // VCA → LPG → Both, switching every block
+      lowPassGateKernel.process(state, [inBuf, cvBuf, null], outs, params, BLOCK_FRAMES);
+      for (let i = 0; i < BLOCK_FRAMES; i++) {
+        expect(Number.isFinite(outs[0][i])).toBe(true);
+        expect(Math.abs(outs[0][i])).toBeLessThan(10); // input is ±4 V; nothing should blow up
+      }
+    }
   });
 });
 

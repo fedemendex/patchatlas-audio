@@ -38,9 +38,14 @@
 //     modulate the decay time, so it is fixed rather than knob-mapped.
 //   - level is hard-clamped to [0, 1] every sample.
 //
-// Audio path: amp = level², cutoffHz = LPG_CUTOFF_MIN_HZ + level² ×
+// Audio path: amp = level², cutoffHz = LPG_CUTOFF_MIN_HZ + level³ ×
 // LPG_CUTOFF_RANGE_HZ, run through two cascaded one-pole lowpass stages
-// (12 dB/oct total). The filter always runs (regardless of Mode) so its
+// (12 dB/oct total). The fully-open cutoff (~4 kHz) is deliberately well
+// inside the audible band so LPG mode colors real material even at full
+// level, and the level³ curve is steeper than the level² amp curve so
+// brightness falls during the loud part of a decay — that pairing is what
+// makes VCA vs LPG audibly distinct and a Strike read as a pluck that
+// darkens as it fades. The filter always runs (regardless of Mode) so its
 // state stays continuous across a live Mode switch; Mode only selects which
 // combination of {In, filtered} × amp becomes the output (see the per-mode
 // breakdown above).
@@ -54,8 +59,10 @@ import { CV_UNIPOLAR_MAX, GATE_FIRE_THRESHOLD_V, GATE_REARM_THRESHOLD_V } from "
 
 // LPG design constants: local to this module, not signal-standard values
 // (same precedent as filter.ts's CUTOFF_MIN_HZ / CUTOFF_MAX_FRAC).
+// Fully open cutoff = MIN + RANGE ≈ 4 kHz: dark enough that a two-pole
+// lowpass audibly colors rich material (saw/pulse/noise) even at full level.
 const LPG_CUTOFF_MIN_HZ = 40;
-const LPG_CUTOFF_RANGE_HZ = 12000;
+const LPG_CUTOFF_RANGE_HZ = 3960;
 const DECAY_TIME_S = 0.3;
 
 // Mode switch positions (seed order): VCA, LPG, Both.
@@ -147,9 +154,11 @@ export const lowPassGateKernel: Kernel<LowPassGateState> = {
         if (Number.isFinite(v)) x = v;
       }
 
-      // Two-pole lowpass, cutoff opening with level. Always runs so filter
-      // state stays continuous across a live Mode switch.
-      const cutoffHz = LPG_CUTOFF_MIN_HZ + levelSq * LPG_CUTOFF_RANGE_HZ;
+      // Two-pole lowpass, cutoff opening with level³ — steeper than the
+      // level² amp curve so brightness decays during the audible part of a
+      // pluck, not after it. Always runs so filter state stays continuous
+      // across a live Mode switch.
+      const cutoffHz = LPG_CUTOFF_MIN_HZ + levelSq * level * LPG_CUTOFF_RANGE_HZ;
       const coeff = 1 - Math.exp(-twoPiOverSr * cutoffHz);
       lp1 += (x - lp1) * coeff;
       lp2 += (lp1 - lp2) * coeff;
