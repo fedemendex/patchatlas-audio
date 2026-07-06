@@ -20,6 +20,7 @@ import { clockKernel } from "./clock";
 import { sequencerKernel } from "./sequencer";
 import { ringModKernel } from "./ringMod";
 import { lowPassGateKernel } from "./lowPassGate";
+import { reverbKernel } from "./reverb";
 import { toyGainKernel, toySineKernel } from "../engine/testKernels";
 
 // --- Seed-integrity validator -----------------------------------------------
@@ -283,8 +284,8 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the fifteen registered entries (size 15)", () => {
-    expect(registry.size).toBe(15);
+  it("has exactly the sixteen registered entries (size 16)", () => {
+    expect(registry.size).toBe(16);
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -301,6 +302,7 @@ describe("production registry", () => {
       "sequencer",
       "ring-modulator",
       "low-pass-gate",
+      "reverb",
     ]) {
       expect(registry.has(slug)).toBe(true);
     }
@@ -369,6 +371,17 @@ describe("production registry", () => {
 
   it("low-pass-gate entry uses the canonical lowPassGateKernel", () => {
     expect(registry.get("low-pass-gate")?.kernel).toBe(lowPassGateKernel);
+  });
+
+  it("reverb entry uses the canonical reverbKernel", () => {
+    expect(registry.get("reverb")?.kernel).toBe(reverbKernel);
+  });
+
+  it("reverb Preset defaults to Room (position 0) with exactly Room/Hall/Plate", () => {
+    const preset = registry.get("reverb")?.params.Preset;
+    expect(preset?.curve).toBe("positions");
+    expect(preset?.positions).toEqual(["Room", "Hall", "Plate"]);
+    expect(preset?.default).toBe(0);
   });
 
   it("does not contain the deferred noise-random slug", () => {
@@ -480,7 +493,7 @@ describe("preview capability metadata", () => {
   });
 
   it("leaves fully-previewed modules without a preview block", () => {
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "ring-modulator", "low-pass-gate"]) {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "ring-modulator", "low-pass-gate", "reverb"]) {
       expect(registry.get(slug)?.preview).toBeUndefined();
     }
   });
@@ -497,7 +510,7 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for all fifteen registered playable slugs", () => {
+  it("returns true for all sixteen registered playable slugs", () => {
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -514,6 +527,7 @@ describe("isPlayable", () => {
       "sequencer",
       "ring-modulator",
       "low-pass-gate",
+      "reverb",
     ]) {
       expect(isPlayable(slug)).toBe(true);
     }
