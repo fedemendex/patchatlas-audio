@@ -186,7 +186,7 @@ describe("stereo shape", () => {
     expect(rms(R, 0, SR / 2)).toBeGreaterThan(0);
   });
 
-  it("the tank is mono-fed (upstream model): a hard-left input still yields balanced stereo reverb", () => {
+  it("plate is mono-fed: a hard-left input still yields balanced stereo reverb", () => {
     const params = presetParams(PRESET_PLATE);
     params[P_MIX] = 1; // wet only, so channel balance measures the tank alone
     const { L, R } = render({
@@ -206,6 +206,90 @@ describe("stereo shape", () => {
     let maxDiff = 0;
     for (let i = 0; i < L.length; i++) maxDiff = Math.max(maxDiff, Math.abs(L[i] - R[i]));
     expect(maxDiff).toBeGreaterThan(1e-4);
+  });
+});
+
+// GH #83 revision: Room and Hall are STEREO-FED (L → first tank loop, R →
+// second); only Plate mono-sums the wet input (0.5·(L+R), upstream's model).
+// The discriminating assertion: if a preset mono-summed, a hard-left impulse
+// would be indistinguishable from the same energy centered (L = R = imp/2) —
+// so those two renders must DIFFER for Room/Hall and be IDENTICAL for Plate.
+describe("per-preset input feed (stereo-fed Room/Hall, mono-fed Plate)", () => {
+  const silence = (): number => 0;
+  const halfImpulse = (i: number): number => (i === 0 ? AUDIO_NORM / 2 : 0);
+
+  function wetOnly(preset: number, inLAt: (i: number) => number, inRAt: (i: number) => number) {
+    const params = presetParams(preset);
+    params[P_MIX] = 1; // wet only: the dry path is stereo in every mode and
+    // would mask the tank-feed distinction under test
+    return render({ totalSamples: SR / 2, params, inLAt, inRAt });
+  }
+
+  // Normalized L2 distance between two renders, over both channels.
+  function distance(
+    a: { L: Float32Array; R: Float32Array },
+    b: { L: Float32Array; R: Float32Array },
+  ): number {
+    let diff = 0;
+    let ref = 0;
+    for (let i = 0; i < a.L.length; i++) {
+      diff += (a.L[i] - b.L[i]) ** 2 + (a.R[i] - b.R[i]) ** 2;
+      ref += a.L[i] ** 2 + a.R[i] ** 2;
+    }
+    return diff / ref;
+  }
+
+  it.each([
+    ["room", PRESET_ROOM],
+    ["hall", PRESET_HALL],
+  ])("%s does not mono-sum: hard-left ≠ the same energy centered", (_n, preset) => {
+    const hardLeft = wetOnly(preset, impulseAt0, silence);
+    const centered = wetOnly(preset, halfImpulse, halfImpulse);
+    // A mono-summing feed would make these bit-identical (0.5·(imp+0) ==
+    // 0.5·(imp/2+imp/2)); the stereo feed must separate them decisively.
+    expect(distance(hardLeft, centered)).toBeGreaterThan(0.1);
+  });
+
+  it("plate DOES mono-sum: hard-left and the same energy centered render identical wet output", () => {
+    const hardLeft = wetOnly(PRESET_PLATE, impulseAt0, silence);
+    const centered = wetOnly(PRESET_PLATE, halfImpulse, halfImpulse);
+    for (let i = 0; i < hardLeft.L.length; i++) {
+      expect(hardLeft.L[i]).toBe(centered.L[i]);
+      expect(hardLeft.R[i]).toBe(centered.R[i]);
+    }
+  });
+
+  it.each([
+    ["room", PRESET_ROOM],
+    ["hall", PRESET_HALL],
+  ])("%s: a hard-left impulse excites the tank differently than a hard-right impulse", (_n, preset) => {
+    const left = wetOnly(preset, impulseAt0, silence);
+    const right = wetOnly(preset, silence, impulseAt0);
+    // Different injection points (first vs second tank loop) — the wet
+    // responses must differ, not merely mirror each other.
+    expect(distance(left, right)).toBeGreaterThan(0.1);
+    // The panned input still reaches BOTH output channels (cross-coupled
+    // tank), and each side's render is finite, non-silent stereo.
+    for (const r of [left, right]) {
+      expectAllFinite(r.L);
+      expectAllFinite(r.R);
+      expect(rms(r.L, 0, r.L.length)).toBeGreaterThan(0);
+      expect(rms(r.R, 0, r.R.length)).toBeGreaterThan(0);
+    }
+  });
+
+  it("stereo-fed room stays bounded under sustained hard-panned input at max Decay", () => {
+    const params = presetParams(PRESET_ROOM);
+    params[P_DECAY] = 1;
+    params[P_MIX] = 1;
+    const { L, R } = render({
+      totalSamples: SR,
+      params,
+      inLAt: (i) => Math.sin(i * 0.13) * AUDIO_NORM * 4,
+      inRAt: () => 0,
+    });
+    expectAllFinite(L);
+    expectAllFinite(R);
   });
 });
 
@@ -239,6 +323,46 @@ describe("visible controls shape the tail", () => {
     const start = Math.floor(0.3 * SR);
     const end = Math.floor(0.5 * SR);
     expect(hfShare(b.L, start, end)).toBeLessThan(hfShare(a.L, start, end) * 0.5);
+  });
+
+  it("Time CV (decay CV) lengthens the tail on top of the Decay knob, clamped below freeze", () => {
+    const params = roomParams();
+    params[P_DECAY] = 0.1;
+    params[P_MIX] = 1;
+    const knobOnly = render({ totalSamples: SR, params, inLAt: impulseAt0, inRAt: impulseAt0 });
+    const withCV = render({
+      totalSamples: SR,
+      params,
+      inLAt: impulseAt0,
+      inRAt: impulseAt0,
+      decayCvAt: () => 5, // +CV_BIPOLAR_MAX: pushes decay to the (capped) top
+    });
+    const late = (r: { L: Float32Array }): number => rms(r.L, 0.5 * SR, 0.9 * SR);
+    expect(late(withCV)).toBeGreaterThan(late(knobOnly) * 3);
+    expectAllFinite(withCV.L); // capped at DECAY_MAX < 1 — no freeze/blowup
+    expectAllFinite(withCV.R);
+  });
+
+  it("sweeping Size while playing stays finite and bounded (accepted-warble, never blowup)", () => {
+    const state = reverbKernel.init(SR);
+    const params = roomParams();
+    params[P_MIX] = 1;
+    params[P_DECAY] = 0.9;
+    const inL = new Float32Array(BLOCK_FRAMES);
+    const inR = new Float32Array(BLOCK_FRAMES);
+    const outs = [new Float32Array(BLOCK_FRAMES), new Float32Array(BLOCK_FRAMES)];
+    const total = SR; // 1 s, sweeping Size 1 → 0 → 1 across the render
+    for (let start = 0; start < total; start += BLOCK_FRAMES) {
+      const phase = start / total;
+      params[P_SIZE] = Math.abs(1 - 2 * phase); // 1 → 0 → 1
+      for (let i = 0; i < BLOCK_FRAMES; i++) {
+        inL[i] = Math.sin((start + i) * 0.11) * AUDIO_NORM;
+        inR[i] = inL[i];
+      }
+      reverbKernel.process(state, [inL, inR, null], outs, params, BLOCK_FRAMES);
+      expectAllFinite(outs[0]);
+      expectAllFinite(outs[1]);
+    }
   });
 
   it("PreDelay delays the wet onset", () => {
@@ -302,11 +426,16 @@ describe("presets", () => {
   });
 });
 
-// The kernel is a port of khoin/DattorroReverbNode (see reverb.ts header).
-// These tests run the VENDORED upstream processor (__fixtures__/
-// dattorroReverbUpstream.js, verbatim) against the kernel with equivalent
-// parameters and require numerical agreement to within float32 rounding
-// noise — the port must never drift from the known-good implementation.
+// The kernel's core is a port of khoin/DattorroReverbNode (see reverb.ts
+// header). These tests run the VENDORED upstream processor (__fixtures__/
+// dattorroReverbUpstream.js, verbatim) against the kernel and require
+// numerical agreement to within float32 rounding noise. Scope of the claim
+// (GH #83 revision): upstream is mono-fed, so equivalence is asserted where
+// our feed model coincides with upstream's — Plate (mono-fed always) and the
+// stereo-fed presets under IDENTICAL L/R input, where the per-channel chains
+// produce identical injections and the feed degenerates to upstream's. For
+// PANNED input, Room/Hall are deliberately NOT upstream-equivalent (see the
+// per-preset input feed tests).
 describe("upstream equivalence (khoin/DattorroReverbNode)", () => {
   interface UpstreamProcessor {
     process(
@@ -335,8 +464,9 @@ describe("upstream equivalence (khoin/DattorroReverbNode)", () => {
     return upstreamClass;
   }
 
-  // Renders both implementations over the same scripted input and returns
-  // the max absolute sample difference across both channels.
+  // Renders both implementations over the same scripted input (IDENTICAL on
+  // L and R — the regime where every preset's feed matches upstream's) and
+  // returns the max absolute sample difference across both channels.
   async function maxDivergence(opts: {
     preset: number;
     upstreamParams: Record<string, number[]>;
@@ -410,7 +540,7 @@ describe("upstream equivalence (khoin/DattorroReverbNode)", () => {
     expect(diff).toBeLessThan(1e-6);
   });
 
-  it("room preset matches upstream with the demo's small-room parameter row", async () => {
+  it("stereo-fed room degenerates to upstream exactly for identical L/R input (demo's small-room row)", async () => {
     const mix = 0.4;
     const diff = await maxDivergence({
       preset: PRESET_ROOM,

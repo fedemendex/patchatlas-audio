@@ -12,12 +12,28 @@
 //   CONNECTION WITH THE SOFTWARE OR THE DISTRIBUTION OF THE SOFTWARE.
 //
 // The port preserves the upstream topology and constants exactly: the same
-// 12 delay lines with second-denominated lengths, the same four-allpass input
+// delay-line lengths (second-denominated), the same four-allpass input
 // diffusion chain, the same two cross-coupled tank loops with cubic-
 // interpolated modulated allpasses (detuned 6.2800/6.2847 rad excursion
-// oscillators), the same 14-tap stereo output matrix, and the same mono tank
-// feed (0.5·(L+R) — every preset is mono-fed, stereo-out, per upstream).
-// Differences from upstream, all at the integration boundary:
+// oscillators), and the same 14-tap stereo output matrix.
+//
+// Input-feed model (per preset, MONO_INPUT below — a Patcha Mama product
+// decision, GH #83, layered on the upstream core):
+//   - Plate is mono-fed exactly as upstream: 0.5·(L+R) → pre-delay →
+//     bandwidth → one diffusion chain → the SAME signal injected into both
+//     tank loops. This mode is numerically equivalent to upstream (pinned by
+//     reverb.test.ts against the vendored fixture).
+//   - Room and Hall are STEREO-FED Dattorro-derived variants: each channel
+//     gets its own pre-delay + bandwidth + diffusion chain (chain B duplicates
+//     chain A's upstream lengths/gains), and L injects into the first tank
+//     loop, R into the second. Same topology and constants as upstream, but a
+//     hard-panned input is NOT summed to center before the tank. For
+//     identical L/R input the two chains produce identical injections, so
+//     this mode degenerates to the upstream mono-fed behavior exactly (also
+//     pinned by test); for panned input it is deliberately NOT
+//     upstream-equivalent. The dry path is stereo in every mode.
+//
+// Other differences from upstream, all at the integration boundary:
 //   - Reshaped from an AudioWorkletProcessor into the Patcha Mama Kernel
 //     contract (init/process, shared write counter, write-relative reads).
 //   - Size (not an upstream parameter): scales the eight TANK delay/tap read
@@ -67,6 +83,10 @@ const DECAY_DIFFUSION_1 = [0.6954, 0.7839, 0.7]; // tank modulated-allpass gain
 const DECAY_DIFFUSION_2 = [0.6022, 0.1992, 0.5]; // tank second-allpass gain
 const EXCURSION_RATE_HZ = [0, 0, 0.5]; // tank allpass modulation rate
 const EXCURSION_DEPTH_MS = [0, 0, 0.7]; // tank allpass modulation depth
+// 1 = mono-fed tank (upstream's model, classic plate): 0.5·(L+R) into both
+// loops. 0 = stereo-fed (our variant): L into the first loop, R into the
+// second. See the input-feed section of the file header.
+const MONO_INPUT = [0, 0, 1];
 
 // ── Design constants ─────────────────────────────────────────────────────────
 const PRESET_COUNT = 3;
@@ -81,17 +101,22 @@ const EXC_RAD_R = 6.2847;
 // Shared sample counter wrap: a power of two that every line mask divides.
 const COUNTER_WRAP = 1 << 30;
 
-// The 12 upstream delay lines, lengths in SECONDS (paper values converted by
-// upstream's Conversion.xlsx; effective delay per line is round(s·sr) − 1).
-//  0..3  input diffusion allpasses 1..4
-//  4..7  left tank loop: modulated allpass, delay, allpass, delay
-//  8..11 right tank loop: modulated allpass, delay, allpass, delay
-const LINE_COUNT = 12;
+// Delay lines, lengths in SECONDS (upstream's paper values, converted by its
+// Conversion.xlsx; effective delay per line is round(s·sr) − 1).
+//  0..3   input diffusion allpasses 1..4, channel A (upstream's only chain)
+//  4..7   left tank loop: modulated allpass, delay, allpass, delay
+//  8..11  right tank loop: modulated allpass, delay, allpass, delay
+// 12..15  input diffusion chain B (stereo-fed mode's right channel) — same
+//         upstream lengths as 0..3, so identical L/R input produces identical
+//         injections and the stereo-fed mode degenerates to upstream exactly.
+const LINE_COUNT = 16;
 const TANK_FIRST = 4;
+const TANK_LAST = 11;
 const LINE_LEN_S = [
   0.004771345, 0.003595309, 0.012734787, 0.009307483,
   0.022579886, 0.149625349, 0.060481839, 0.1249958,
   0.030509727, 0.141695508, 0.089244313, 0.106280031,
+  0.004771345, 0.003595309, 0.012734787, 0.009307483,
 ];
 
 // Upstream's 14 output taps, in SECONDS. A tap value is an offset from the
@@ -117,12 +142,14 @@ interface ReverbState {
   tapBaseR: Int32Array;
   tapL: Int32Array;
   tapR: Int32Array;
-  preDelayBuf: Float32Array;
+  preDelayBufL: Float32Array;
+  preDelayBufR: Float32Array;
   preDelayMask: number;
   /** Shared write counter: line writes at t & mask, reads at (t − delay) & mask. */
   t: number;
   excPhase: number;
-  lp1: number; // input bandwidth lowpass (upstream _lp1)
+  lp1: number; // input bandwidth lowpass, chain A (upstream _lp1)
+  lp1b: number; // input bandwidth lowpass, chain B (stereo-fed right channel)
   lp2: number; // left tank damping lowpass (upstream _lp2)
   lp3: number; // right tank damping lowpass (upstream _lp3)
 }
@@ -193,11 +220,13 @@ export const reverbKernel: Kernel<ReverbState> = {
       tapBaseR,
       tapL: new Int32Array(TAP_COUNT),
       tapR: new Int32Array(TAP_COUNT),
-      preDelayBuf: new Float32Array(pdSize),
+      preDelayBufL: new Float32Array(pdSize),
+      preDelayBufR: new Float32Array(pdSize),
       preDelayMask: pdSize - 1,
       t: 0,
       excPhase: 0,
       lp1: 0,
+      lp1b: 0,
       lp2: 0,
       lp3: 0,
     };
@@ -249,13 +278,14 @@ export const reverbKernel: Kernel<ReverbState> = {
     const st = DECAY_DIFFUSION_2[preset];
     const ex = EXCURSION_RATE_HZ[preset] / state.sr;
     const ed = (EXCURSION_DEPTH_MS[preset] * state.sr) / 1000;
+    const monoIn = MONO_INPUT[preset] === 1;
 
     // --- Size-scale the tank delays and output taps for this block ---
     const bufs = state.bufs;
     const masks = state.masks;
     const len = state.len;
     const szK = SIZE_MIN_FACTOR + size * (1 - SIZE_MIN_FACTOR);
-    for (let li = TANK_FIRST; li < LINE_COUNT; li++) {
+    for (let li = TANK_FIRST; li <= TANK_LAST; li++) {
       const l = Math.round(state.baseLen[li] * szK);
       len[li] = l < 2 ? 2 : l;
     }
@@ -268,11 +298,13 @@ export const reverbKernel: Kernel<ReverbState> = {
       tapR[k] = tr < 1 ? 1 : tr;
     }
 
-    const pdBuf = state.preDelayBuf;
+    const pdBufL = state.preDelayBufL;
+    const pdBufR = state.preDelayBufR;
     const pdMask = state.preDelayMask;
     let t = state.t;
     let excPhase = state.excPhase;
     let lp1 = state.lp1;
+    let lp1b = state.lp1b;
     let lp2 = state.lp2;
     let lp3 = state.lp3;
 
@@ -304,14 +336,31 @@ export const reverbKernel: Kernel<ReverbState> = {
       else if (decay01 > DECAY_MAX) decay01 = DECAY_MAX;
       const dc = decay01;
 
-      // Pre-delay on the mono tank feed (upstream downmixes 0.5·(L+R)).
-      pdBuf[t & pdMask] = 0.5 * (dryL + dryR);
-      const pdOut = pdBuf[(t - pd) & pdMask];
+      // Per-channel pre-delay. Reading both and summing after is equivalent
+      // to upstream's sum-then-delay (linear, same pd on both lines).
+      pdBufL[t & pdMask] = dryL;
+      pdBufR[t & pdMask] = dryR;
+      const pdL = pdBufL[(t - pd) & pdMask];
+      const pdR = pdBufR[(t - pd) & pdMask];
 
-      // Input bandwidth lowpass (upstream: lp1 += bw·(x − lp1)).
-      lp1 += bw * (pdOut - lp1);
+      // Tank feed per preset: Plate mono-sums before the chains (upstream's
+      // model); Room/Hall keep the channels separate (stereo-fed variant).
+      let feedA;
+      let feedB;
+      if (monoIn) {
+        feedA = 0.5 * (pdL + pdR);
+        feedB = feedA;
+      } else {
+        feedA = pdL;
+        feedB = pdR;
+      }
 
-      // Pre-tank: four series input-diffusion allpasses across lines 0..3,
+      // Input bandwidth lowpass (upstream: lp1 += bw·(x − lp1)), per chain.
+      lp1 += bw * (feedA - lp1);
+      lp1b += bw * (feedB - lp1b);
+
+      // Pre-tank: four series input-diffusion allpasses per chain (chain A =
+      // lines 0..3, upstream's; chain B = lines 12..15, same lengths/gains),
       // written exactly as upstream's chained writeDelay/readDelay form
       // (wN is the value written to line N; dN its delayed read).
       const d0 = bufs[0][(t - len[0]) & masks[0]];
@@ -326,7 +375,27 @@ export const reverbKernel: Kernel<ReverbState> = {
       bufs[2][t & masks[2]] = w2;
       const w3 = si * (w2 - d3) + d2;
       bufs[3][t & masks[3]] = w3;
-      const split = si * w3 + d3;
+      const splitA = si * w3 + d3;
+
+      const d12 = bufs[12][(t - len[12]) & masks[12]];
+      const d13 = bufs[13][(t - len[13]) & masks[13]];
+      const d14 = bufs[14][(t - len[14]) & masks[14]];
+      const d15 = bufs[15][(t - len[15]) & masks[15]];
+      const w12 = lp1b - fi * d12;
+      bufs[12][t & masks[12]] = w12;
+      const w13 = fi * (w12 - d13) + d12;
+      bufs[13][t & masks[13]] = w13;
+      const w14 = fi * w13 + d13 - si * d14;
+      bufs[14][t & masks[14]] = w14;
+      const w15 = si * (w14 - d15) + d14;
+      bufs[15][t & masks[15]] = w15;
+      const splitB = si * w15 + d15;
+
+      // Injections: mono mode uses chain A's signal for BOTH loops (bit-exact
+      // upstream; chain B still runs so its state is warm across preset
+      // switches). Stereo mode: L → first loop, R → second loop.
+      const injL = splitA;
+      const injR = monoIn ? splitA : splitB;
 
       // Excursions (upstream's detuned cos/sin pair from one phase).
       const excL = ed * (1 + Math.cos(excPhase * EXC_RAD_L));
@@ -334,7 +403,7 @@ export const reverbKernel: Kernel<ReverbState> = {
 
       // ── Left tank loop (lines 4..7; cross-fed from line 11) ────────────
       const ap4 = cubicReadAt(bufs[4], masks[4], t, len[4], excL);
-      let tank = split + dc * bufs[11][(t - len[11]) & masks[11]] + ft * ap4;
+      let tank = injL + dc * bufs[11][(t - len[11]) & masks[11]] + ft * ap4;
       if (tank > REVERB_STATE_LIMIT_V) tank = REVERB_STATE_LIMIT_V;
       else if (tank < -REVERB_STATE_LIMIT_V) tank = -REVERB_STATE_LIMIT_V;
       bufs[4][t & masks[4]] = tank;
@@ -347,7 +416,7 @@ export const reverbKernel: Kernel<ReverbState> = {
 
       // ── Right tank loop (lines 8..11; cross-fed from line 7) ───────────
       const ap8 = cubicReadAt(bufs[8], masks[8], t, len[8], excR);
-      let tankR = split + dc * bufs[7][(t - len[7]) & masks[7]] + ft * ap8;
+      let tankR = injR + dc * bufs[7][(t - len[7]) & masks[7]] + ft * ap8;
       if (tankR > REVERB_STATE_LIMIT_V) tankR = REVERB_STATE_LIMIT_V;
       else if (tankR < -REVERB_STATE_LIMIT_V) tankR = -REVERB_STATE_LIMIT_V;
       bufs[8][t & masks[8]] = tankR;
@@ -382,6 +451,7 @@ export const reverbKernel: Kernel<ReverbState> = {
     state.t = t;
     state.excPhase = excPhase;
     state.lp1 = lp1;
+    state.lp1b = lp1b;
     state.lp2 = lp2;
     state.lp3 = lp3;
   },
