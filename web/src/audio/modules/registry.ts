@@ -21,6 +21,7 @@ import { clockKernel } from "./clock";
 import { sequencerKernel } from "./sequencer";
 import { ringModKernel } from "./ringMod";
 import { lowPassGateKernel } from "./lowPassGate";
+import { reverbKernel } from "./reverb";
 
 export interface ModuleDSP {
   slug: string; // must exist in seed/generic_modules.json
@@ -300,6 +301,30 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       outJacks: ["Out"],
       params: {
         Mode: { min: 0, max: 2, default: 2, curve: "positions", positions: ["VCA", "LPG", "Both"] },
+      },
+    },
+  ],
+  [
+    "reverb",
+    {
+      slug: "reverb",
+      kernel: reverbKernel,
+      // Dattorro tank adapted from khoin/DattorroReverbNode (public domain;
+      // see reverb.ts header). Preset (Room/Hall/Plate) travels as a numeric
+      // switch index; the kernel derives the hidden diffusion/bandwidth/
+      // modulation values from it, and the UI batch-sets the five visible
+      // knobs on a preset change (reverbPresets.ts / GH #83). "Decay CV"
+      // (renamed from "Time CV" in migration 0017) adds to the Decay knob.
+      // Defaults below ARE the Room preset (asserted in reverbPresets.test.ts).
+      inJacks: ["In L", "In R", "Decay CV"],
+      outJacks: ["Out L", "Out R"],
+      params: {
+        Preset: { min: 0, max: 2, default: 0, curve: "positions", positions: ["Room", "Hall", "Plate"] },
+        PreDelay: { min: 0, max: 0.25, default: 0.032, curve: "linear" },
+        Size: { min: 0, max: 1, default: 1, curve: "linear" },
+        Decay: { min: 0, max: 1, default: 0.32, curve: "linear" },
+        Damp: { min: 0, max: 1, default: 0.64, curve: "linear" },
+        Mix: { min: 0, max: 1, default: 0.25, curve: "linear" },
       },
     },
   ],
