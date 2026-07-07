@@ -1,6 +1,8 @@
 // Vendored TEST FIXTURE — the upstream implementation our reverb kernel is
 // ported from, kept verbatim (plus this note) so reverb.test.ts can assert
-// numerical equivalence forever. Source: khoin/DattorroReverbNode
+// numerical equivalence where the kernel's feed model coincides with
+// upstream's mono feed (Plate always; stereo-fed presets under identical
+// L/R input). Source: khoin/DattorroReverbNode
 // https://github.com/khoin/DattorroReverbNode (dattorroReverb.js).
 // Not part of the app bundle: only imported by tests, which provide the
 // AudioWorkletProcessor / registerProcessor / sampleRate globals.

@@ -313,10 +313,10 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       // see reverb.ts header). Preset (Room/Hall/Plate) travels as a numeric
       // switch index; the kernel derives the hidden diffusion/bandwidth/
       // modulation values from it, and the UI batch-sets the five visible
-      // knobs on a preset change (reverbPresets.ts / GH #83). "Time CV" (seed
-      // group "Decay") is wired as decay CV. Defaults below ARE the Room
-      // preset (asserted in reverbPresets.test.ts).
-      inJacks: ["In L", "In R", "Time CV"],
+      // knobs on a preset change (reverbPresets.ts / GH #83). "Decay CV"
+      // (renamed from "Time CV" in migration 0017) adds to the Decay knob.
+      // Defaults below ARE the Room preset (asserted in reverbPresets.test.ts).
+      inJacks: ["In L", "In R", "Decay CV"],
       outJacks: ["Out L", "Out R"],
       params: {
         Preset: { min: 0, max: 2, default: 0, curve: "positions", positions: ["Room", "Hall", "Plate"] },

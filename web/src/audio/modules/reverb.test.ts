@@ -120,7 +120,7 @@ function expectAllFinite(buf: Float32Array): void {
 describe("seed confirmation", () => {
   it("registry entry matches the seeded reverb jack/control names", () => {
     const entry = registry.get("reverb");
-    expect(entry?.inJacks).toEqual(["In L", "In R", "Time CV"]);
+    expect(entry?.inJacks).toEqual(["In L", "In R", "Decay CV"]);
     expect(entry?.outJacks).toEqual(["Out L", "Out R"]);
     expect(Object.keys(entry?.params ?? {})).toEqual([
       "Preset",
@@ -278,6 +278,35 @@ describe("per-preset input feed (stereo-fed Room/Hall, mono-fed Plate)", () => {
     }
   });
 
+  it("the duplicated input chains own fully separate mutable state", () => {
+    // Chain B (lines 12..15) shares LENGTHS/gains with chain A (lines 0..3)
+    // but must never share buffers or filter state. Distinct-object check on
+    // every delay line and both pre-delay buffers; the bandwidth lowpass
+    // states are separate scalar fields (lp1/lp1b), and behavioral aliasing
+    // is additionally pinned by the upstream-equivalence tests (a shared
+    // buffer would corrupt chain A and blow the < 1e-6 bound).
+    const state = reverbKernel.init(SR) as unknown as {
+      bufs: Float32Array[];
+      preDelayBufL: Float32Array;
+      preDelayBufR: Float32Array;
+      lp1: number;
+      lp1b: number;
+    };
+    expect(state.bufs).toHaveLength(16);
+    const all = [...state.bufs, state.preDelayBufL, state.preDelayBufR];
+    for (let a = 0; a < all.length; a++) {
+      for (let b = a + 1; b < all.length; b++) {
+        expect(all[a]).not.toBe(all[b]);
+      }
+    }
+    // Chain B mirrors chain A's allocation sizes (same upstream lengths).
+    for (let k = 0; k < 4; k++) {
+      expect(state.bufs[12 + k].length).toBe(state.bufs[k].length);
+    }
+    expect(state.lp1).toBe(0);
+    expect(state.lp1b).toBe(0);
+  });
+
   it("stereo-fed room stays bounded under sustained hard-panned input at max Decay", () => {
     const params = presetParams(PRESET_ROOM);
     params[P_DECAY] = 1;
@@ -325,7 +354,7 @@ describe("visible controls shape the tail", () => {
     expect(hfShare(b.L, start, end)).toBeLessThan(hfShare(a.L, start, end) * 0.5);
   });
 
-  it("Time CV (decay CV) lengthens the tail on top of the Decay knob, clamped below freeze", () => {
+  it("Decay CV lengthens the tail on top of the Decay knob, clamped below freeze", () => {
     const params = roomParams();
     params[P_DECAY] = 0.1;
     params[P_MIX] = 1;
