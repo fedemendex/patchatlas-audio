@@ -110,7 +110,7 @@ follower for the original instantaneous behavior.
 
 ## Low pass gate
 
-The low pass gate (`low-pass-gate`) is Patchamama's generic educational preview model of a
+The low pass gate (`low-pass-gate`) is Patch Atlas's generic educational preview model of a
 vactrol-driven coupled VCA + 2-pole lowpass — it is not modeled on, or claimed to match, any
 specific hardware LPG. A single follower state (`level`, 0 → 1, "openness") drives both stages:
 
@@ -131,7 +131,7 @@ specific hardware LPG. A single follower state (`level`, 0 → 1, "openness") dr
   `Strike` read as a natural pluck that darkens as it fades. The filter always runs regardless of
   `Mode`, so its state stays continuous across a live mode switch.
 - **`Mode`** (seed switch, positions `VCA` / `LPG` / `Both`, default `Both`) selects which
-  combination becomes the output — Patchamama's generic preview semantics, not a claim to match
+  combination becomes the output — Patch Atlas's generic preview semantics, not a claim to match
   any specific hardware convention:
   - `VCA`: the bright, amplitude-only gate, `Out = In × amp`. The filter still runs every sample
     (so its state stays live for a clean transition if `Mode` changes) but is never read for

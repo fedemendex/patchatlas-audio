@@ -1,6 +1,6 @@
 // Low Pass Gate kernel for slug "low-pass-gate".
 //
-// Patchamama's generic educational preview semantics — not a clone of, or a
+// Patch Atlas's generic educational preview semantics — not a clone of, or a
 // claim to match, any specific hardware LPG convention. Models a
 // vactrol-driven coupled VCA + 2-pole lowpass, selectable via
 // the seeded Mode switch (positions VCA / LPG / Both). "Gate" (amplitude

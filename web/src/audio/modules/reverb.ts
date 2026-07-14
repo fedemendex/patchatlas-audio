@@ -17,7 +17,7 @@
 // interpolated modulated allpasses (detuned 6.2800/6.2847 rad excursion
 // oscillators), and the same 14-tap stereo output matrix.
 //
-// Input-feed model (per preset, MONO_INPUT below — a Patcha Mama product
+// Input-feed model (per preset, MONO_INPUT below — a Patch Atlas product
 // decision, GH #83, layered on the upstream core):
 //   - Plate is mono-fed exactly as upstream: 0.5·(L+R) → pre-delay →
 //     bandwidth → one diffusion chain → the SAME signal injected into both
@@ -34,7 +34,7 @@
 //     upstream-equivalent. The dry path is stereo in every mode.
 //
 // Other differences from upstream, all at the integration boundary:
-//   - Reshaped from an AudioWorkletProcessor into the Patcha Mama Kernel
+//   - Reshaped from an AudioWorkletProcessor into the Patch Atlas Kernel
 //     contract (init/process, shared write counter, write-relative reads).
 //   - Size (not an upstream parameter): scales the eight TANK delay/tap read
 //     lengths by SIZE_MIN_FACTOR..1. At Size = 1 — where every preset sits —
