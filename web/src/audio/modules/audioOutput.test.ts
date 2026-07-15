@@ -428,7 +428,7 @@ describe("no-audio-output behavior", () => {
 
   function patchDoc(modules: PatchDraftDoc["modules"]): PatchDraftDoc {
     return {
-      meta: { title: "", notes: "", visibility: "private" },
+      meta: { title: "", notes: "", visibility: "private", tags: [] },
       modules,
       connections: [],
     };

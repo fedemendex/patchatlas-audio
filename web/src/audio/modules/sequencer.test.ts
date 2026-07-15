@@ -622,7 +622,7 @@ describe("sequencer On defaults — missing controlValues gate, explicit Off res
 
   function compileSeqParams(controlValues: Record<string, number | boolean>): Float32Array {
     const d: PatchDraftDoc = {
-      meta: { title: "t", notes: "", visibility: "private" },
+      meta: { title: "t", notes: "", visibility: "private", tags: [] },
       modules: [{ instanceId: "seq", moduleId: SEQ_MODULE_ID, label: "", positionX: 0, positionY: 0, controlValues }],
       connections: [],
     };

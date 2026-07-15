@@ -142,7 +142,7 @@ describe("preset changes reach the audio engine", () => {
 
   function draftStateWithReverb(): PatchDraftState {
     const doc: PatchDraftDoc = {
-      meta: { title: "", notes: "", visibility: "private" },
+      meta: { title: "", notes: "", visibility: "private", tags: [] },
       modules: [
         {
           instanceId: "inst-reverb",

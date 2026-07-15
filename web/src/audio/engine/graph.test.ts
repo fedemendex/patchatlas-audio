@@ -98,7 +98,7 @@ const moduleById = new Map<string, Module>(
 
 function doc(overrides?: Partial<PatchDraftDoc>): PatchDraftDoc {
   return {
-    meta: { title: "t", notes: "", visibility: "private" },
+    meta: { title: "t", notes: "", visibility: "private", tags: [] },
     modules: [],
     connections: [],
     ...overrides,
