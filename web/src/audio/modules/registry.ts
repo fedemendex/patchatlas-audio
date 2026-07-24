@@ -14,6 +14,7 @@ import { multKernel } from "./mult";
 import { mixerKernel } from "./mixer";
 import { filterKernel } from "./filter";
 import { envelopeGeneratorKernel } from "./envelopeGenerator";
+import { functionGeneratorKernel } from "./functionGenerator";
 import { lfoKernel } from "./lfo";
 import { noiseSourceKernel } from "./noiseSource";
 import { sampleAndHoldKernel } from "./sampleAndHold";
@@ -178,6 +179,29 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
         D: { min: 0.001, max: 10, default: 0.2, curve: "exponential" },
         S: { min: 0, max: GATE_HIGH_V, default: GATE_HIGH_V * 0.7, curve: "linear" },
         R: { min: 0.001, max: 10, default: 0.3, curve: "exponential" },
+      },
+    },
+  ],
+  [
+    "function-generator",
+    {
+      slug: "function-generator",
+      kernel: functionGeneratorKernel,
+      // Maths/DUSG-style slope generator (see functionGenerator.ts header):
+      // Trig fires a rise→fall transient to CV_UNIPOLAR_MAX, In is the slew/
+      // follower input and transient floor, Rise CV/Fall CV/Both CV scale the
+      // knob times at 1 oct/V (positive = slower). EOR/EOC are movement-derived
+      // gates (low while rising / falling), so EOC → Trig self-patches into a
+      // cycle. Cycle (button, default off) self-cycles without a patch.
+      inJacks: ["Trig", "In", "Rise CV", "Fall CV", "Both CV"],
+      outJacks: ["Out", "EOR", "EOC", "Inv"],
+      params: {
+        Rise: { min: 0.001, max: 10, default: 0.01, curve: "exponential" },
+        Fall: { min: 0.001, max: 10, default: 0.3, curve: "exponential" },
+        // Bipolar (seed `bipolar: true`): −1 log, 0 linear, +1 expo transient
+        // shaping (g = 4^curve in the kernel).
+        Curve: { min: -1, max: 1, default: 0, curve: "linear" },
+        Cycle: { min: 0, max: 1, default: 0, curve: "linear" },
       },
     },
   ],

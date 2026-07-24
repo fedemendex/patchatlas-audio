@@ -13,6 +13,7 @@ import { multKernel } from "./mult";
 import { mixerKernel } from "./mixer";
 import { filterKernel } from "./filter";
 import { envelopeGeneratorKernel } from "./envelopeGenerator";
+import { functionGeneratorKernel } from "./functionGenerator";
 import { lfoKernel } from "./lfo";
 import { noiseSourceKernel } from "./noiseSource";
 import { sampleAndHoldKernel } from "./sampleAndHold";
@@ -284,8 +285,8 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the sixteen registered entries (size 16)", () => {
-    expect(registry.size).toBe(16);
+  it("has exactly the seventeen registered entries (size 17)", () => {
+    expect(registry.size).toBe(17);
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -295,6 +296,7 @@ describe("production registry", () => {
       "mixer",
       "filter",
       "envelope-generator",
+      "function-generator",
       "lfo",
       "noise-source",
       "sample-and-hold",
@@ -343,6 +345,10 @@ describe("production registry", () => {
 
   it("envelope-generator entry uses the canonical envelopeGeneratorKernel", () => {
     expect(registry.get("envelope-generator")?.kernel).toBe(envelopeGeneratorKernel);
+  });
+
+  it("function-generator entry uses the canonical functionGeneratorKernel", () => {
+    expect(registry.get("function-generator")?.kernel).toBe(functionGeneratorKernel);
   });
 
   it("lfo entry uses the canonical lfoKernel", () => {
@@ -493,7 +499,7 @@ describe("preview capability metadata", () => {
   });
 
   it("leaves fully-previewed modules without a preview block", () => {
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "ring-modulator", "low-pass-gate", "reverb"]) {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "function-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "ring-modulator", "low-pass-gate", "reverb"]) {
       expect(registry.get(slug)?.preview).toBeUndefined();
     }
   });
@@ -510,7 +516,7 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for all sixteen registered playable slugs", () => {
+  it("returns true for all seventeen registered playable slugs", () => {
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -520,6 +526,7 @@ describe("isPlayable", () => {
       "mixer",
       "filter",
       "envelope-generator",
+      "function-generator",
       "lfo",
       "noise-source",
       "sample-and-hold",
