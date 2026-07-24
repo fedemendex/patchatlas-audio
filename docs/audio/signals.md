@@ -148,6 +148,35 @@ specific hardware LPG. A single follower state (`level`, 0 → 1, "openness") dr
     through nearly unattenuated — it would not gate anything, contradicting what a low-pass
     *gate* is for.
 
+## Function generator
+
+The function generator (`function-generator`) is one channel of a Maths / Serge DUSG-style
+slope generator: a slew core with independent `Rise` and `Fall` times (0.001 → 10 s,
+exponential knobs) that acts as a triggered envelope, a cycling LFO, and a slew limiter.
+
+- **Slew core (rest state)**: the output follows the `In` jack (0 V unpatched/non-finite)
+  with linear rate limiting — full scale (`CV_UNIPOLAR_MAX`) in the `Rise` time going up and
+  the `Fall` time going down. `Curve` does not shape the follower, only transients.
+- **Trig**: a rising edge (standard Schmitt thresholds) fires a transient from the *current*
+  level to a `CV_UNIPOLAR_MAX` peak over the rise time, then falls to the follower target
+  (the live `In` sample, 0 V unpatched). Segments are shaped phase ramps, so the knob time is
+  the actual segment time. A retrigger mid-transient restarts the rise from the current level
+  (always continuous, never a reset to 0).
+- **Curve** (bipolar −1..+1): shapes transients with exponent `g = 4^curve` — rise
+  `y = start + (peak − start)·p^g`, fall the time-mirror `(1 − p)^g`. 0 = linear ramps; +1 =
+  "expo" (slow-start rise, fast-drop/slow-tail fall, the classic analog exponential look);
+  −1 = "log" (the mirror).
+- **Time CV**: `Rise CV` and `Fall CV` each sum with `Both CV`; the summed volts scale the
+  corresponding knob time exponentially at **one octave per volt, positive = slower** (Maths
+  convention). Effective times clamp to the knob range; non-finite CV samples read as 0 V.
+- **Cycle** (button, default off): when on, the fall completion immediately re-fires the rise,
+  self-cycling between the `In` level and the peak (an LFO with period ≈ Rise + Fall).
+- **`EOR` / `EOC`** are movement-derived Maths-style gates: `EOR` is `GATE_HIGH_V` except
+  while the output is moving up, `EOC` is `GATE_HIGH_V` except while it is moving down; both
+  sit high at rest. Patching `EOC → Trig` therefore self-patches into a cycle exactly like the
+  hardware trick (via the compiler's one-block feedback delay). `Inv` is the polarity-inverted
+  function (the mixer/envelope `Inv` convention).
+
 ## Ring modulator
 
 The ring modulator (`ring-modulator`) is a DC-coupled bipolar multiplier: `Out = X * Y /
