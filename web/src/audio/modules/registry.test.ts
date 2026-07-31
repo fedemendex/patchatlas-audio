@@ -27,6 +27,7 @@ import { wavefolderKernel } from "./wavefolder";
 import { sequentialSwitch1ToNKernel } from "./sequentialSwitch1ToN";
 import { sequentialSwitchNTo1Kernel } from "./sequentialSwitchNTo1";
 import { quantizerKernel } from "./quantizer";
+import { logicKernel } from "./logic";
 import { toyGainKernel, toySineKernel } from "../engine/testKernels";
 
 // --- Seed-integrity validator -----------------------------------------------
@@ -290,8 +291,8 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the twenty-two registered entries (size 22)", () => {
-    expect(registry.size).toBe(22);
+  it("has exactly the twenty-three registered entries (size 23)", () => {
+    expect(registry.size).toBe(23);
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -315,6 +316,7 @@ describe("production registry", () => {
       "sequential-switch-1-to-n",
       "sequential-switch-n-to-1",
       "quantizer",
+      "logic",
     ]) {
       expect(registry.has(slug)).toBe(true);
     }
@@ -440,6 +442,17 @@ describe("production registry", () => {
     expect(scale?.curve).toBe("positions");
     expect(scale?.positions).toEqual(["Chrom", "Maj", "Min", "Pent", "Harm Min"]);
     expect(scale?.default).toBe(0);
+  });
+
+  it("logic entry uses the canonical logicKernel", () => {
+    expect(registry.get("logic")?.kernel).toBe(logicKernel);
+  });
+
+  it("logic has no controls (In 1/In 2/Clock inputs, AND/OR/XOR/NOR/FF outputs)", () => {
+    const entry = registry.get("logic");
+    expect(entry?.inJacks).toEqual(["In 1", "In 2", "Clock"]);
+    expect(entry?.outJacks).toEqual(["AND", "OR", "XOR", "NOR", "FF"]);
+    expect(Object.keys(entry?.params ?? {})).toEqual([]);
   });
 
   it("does not contain the deferred noise-random slug", () => {
@@ -574,7 +587,7 @@ describe("preview capability metadata", () => {
   });
 
   it("leaves fully-previewed modules without a preview block", () => {
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "function-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "trigger-sequencer", "ring-modulator", "low-pass-gate", "reverb", "wavefolder", "sequential-switch-1-to-n", "sequential-switch-n-to-1", "quantizer"]) {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "function-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "trigger-sequencer", "ring-modulator", "low-pass-gate", "reverb", "wavefolder", "sequential-switch-1-to-n", "sequential-switch-n-to-1", "quantizer", "logic"]) {
       expect(registry.get(slug)?.preview).toBeUndefined();
     }
   });
@@ -591,7 +604,7 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for all twenty-two registered playable slugs", () => {
+  it("returns true for all twenty-three registered playable slugs", () => {
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -615,6 +628,7 @@ describe("isPlayable", () => {
       "sequential-switch-1-to-n",
       "sequential-switch-n-to-1",
       "quantizer",
+      "logic",
     ]) {
       expect(isPlayable(slug)).toBe(true);
     }

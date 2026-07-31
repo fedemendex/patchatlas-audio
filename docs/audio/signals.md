@@ -230,6 +230,24 @@ freedom from `NaN`/`Infinity` fall out of the formula itself, with no separate o
   settings on bright material. This is a documented preview-quality trade-off, not a bug —
   oversampling is deferred rather than adding a large hidden CPU cost to every block.
 
+## Logic
+
+The logic module (`logic`) provides four combinational gates plus a T flip-flop. Its seeded
+third input was renamed from `In 3` to `Clock` (the stable slug `logic` and the `AND`/`OR`/`XOR`/
+`NOR`/`FF` outputs are unchanged):
+
+- **`AND`/`OR`/`XOR`/`NOR`** operate on `In 1`/`In 2` only, each read through the standard Schmitt
+  latch (fire >= `GATE_FIRE_THRESHOLD_V`, re-arm below `GATE_REARM_THRESHOLD_V`) so a noisy signal
+  near either threshold does not chatter the combinational outputs. `AND` is high when both latches
+  are high; `OR` when either is; `XOR` when exactly one is; `NOR` when neither is. Unpatched/
+  non-finite `In 1`/`In 2` read as 0 V (low). `Clock` has no effect on any of these four outputs.
+- **`FF`** is a T flip-flop driven solely by `Clock` (also the standard Schmitt thresholds): it
+  starts low when the module instance is created, and toggles exactly once per `Clock` rising
+  edge. A sustained-high `Clock` toggles only once until it re-arms below
+  `GATE_REARM_THRESHOLD_V`; falling edges never toggle it. `FF` state (and the `Clock` Schmitt
+  latch) persists across render blocks; there is no reset input, so re-creating the module is the
+  only way to return `FF` to low. `In 1`/`In 2` have no effect on `FF`.
+
 ## Filter resonance
 
 The state-variable filter (`filter`) maps its linear 0..1 `Res` param exponentially onto

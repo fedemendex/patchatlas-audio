@@ -28,6 +28,7 @@ import { wavefolderKernel } from "./wavefolder";
 import { sequentialSwitch1ToNKernel } from "./sequentialSwitch1ToN";
 import { sequentialSwitchNTo1Kernel } from "./sequentialSwitchNTo1";
 import { quantizerKernel } from "./quantizer";
+import { logicKernel } from "./logic";
 
 export interface ModuleDSP {
   slug: string; // must exist in seed/generic_modules.json
@@ -452,6 +453,20 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
           positions: ["Chrom", "Maj", "Min", "Pent", "Harm Min"],
         },
       },
+    },
+  ],
+  [
+    "logic",
+    {
+      slug: "logic",
+      kernel: logicKernel,
+      // Fully previewed. AND/OR/XOR/NOR are combinational over In 1/In 2
+      // only; Clock is dedicated to the FF output (a T flip-flop, starts low,
+      // toggles once per Clock rising edge) and never participates in the
+      // combinational outputs — see logic.ts header.
+      inJacks: ["In 1", "In 2", "Clock"],
+      outJacks: ["AND", "OR", "XOR", "NOR", "FF"],
+      params: {},
     },
   ],
 ]);
