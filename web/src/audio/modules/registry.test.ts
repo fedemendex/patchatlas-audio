@@ -26,6 +26,7 @@ import { reverbKernel } from "./reverb";
 import { wavefolderKernel } from "./wavefolder";
 import { sequentialSwitch1ToNKernel } from "./sequentialSwitch1ToN";
 import { sequentialSwitchNTo1Kernel } from "./sequentialSwitchNTo1";
+import { quantizerKernel } from "./quantizer";
 import { toyGainKernel, toySineKernel } from "../engine/testKernels";
 
 // --- Seed-integrity validator -----------------------------------------------
@@ -289,8 +290,8 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the twenty-one registered entries (size 21)", () => {
-    expect(registry.size).toBe(21);
+  it("has exactly the twenty-two registered entries (size 22)", () => {
+    expect(registry.size).toBe(22);
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -313,6 +314,7 @@ describe("production registry", () => {
       "wavefolder",
       "sequential-switch-1-to-n",
       "sequential-switch-n-to-1",
+      "quantizer",
     ]) {
       expect(registry.has(slug)).toBe(true);
     }
@@ -427,6 +429,17 @@ describe("production registry", () => {
   it("sequential-switch-n-to-1 Steps defaults to its maximum so an untouched knob rotates through all 4 inputs", () => {
     const steps = registry.get("sequential-switch-n-to-1")?.params.Steps;
     expect(steps?.default).toBe(steps?.max);
+  });
+
+  it("quantizer entry uses the canonical quantizerKernel", () => {
+    expect(registry.get("quantizer")?.kernel).toBe(quantizerKernel);
+  });
+
+  it("quantizer Scale defaults to Chrom (position 0) with exactly the five expected positions", () => {
+    const scale = registry.get("quantizer")?.params.Scale;
+    expect(scale?.curve).toBe("positions");
+    expect(scale?.positions).toEqual(["Chrom", "Maj", "Min", "Pent", "Harm Min"]);
+    expect(scale?.default).toBe(0);
   });
 
   it("does not contain the deferred noise-random slug", () => {
@@ -561,7 +574,7 @@ describe("preview capability metadata", () => {
   });
 
   it("leaves fully-previewed modules without a preview block", () => {
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "function-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "trigger-sequencer", "ring-modulator", "low-pass-gate", "reverb", "wavefolder", "sequential-switch-1-to-n", "sequential-switch-n-to-1"]) {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "function-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "trigger-sequencer", "ring-modulator", "low-pass-gate", "reverb", "wavefolder", "sequential-switch-1-to-n", "sequential-switch-n-to-1", "quantizer"]) {
       expect(registry.get(slug)?.preview).toBeUndefined();
     }
   });
@@ -578,7 +591,7 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for all twenty-one registered playable slugs", () => {
+  it("returns true for all twenty-two registered playable slugs", () => {
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -601,6 +614,7 @@ describe("isPlayable", () => {
       "wavefolder",
       "sequential-switch-1-to-n",
       "sequential-switch-n-to-1",
+      "quantizer",
     ]) {
       expect(isPlayable(slug)).toBe(true);
     }

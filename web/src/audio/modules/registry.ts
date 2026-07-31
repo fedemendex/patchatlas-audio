@@ -27,6 +27,7 @@ import { reverbKernel } from "./reverb";
 import { wavefolderKernel } from "./wavefolder";
 import { sequentialSwitch1ToNKernel } from "./sequentialSwitch1ToN";
 import { sequentialSwitchNTo1Kernel } from "./sequentialSwitchNTo1";
+import { quantizerKernel } from "./quantizer";
 
 export interface ModuleDSP {
   slug: string; // must exist in seed/generic_modules.json
@@ -428,6 +429,28 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       outJacks: ["Out"],
       params: {
         Steps: { min: 1, max: 4, default: 4, curve: "linear" },
+      },
+    },
+  ],
+  [
+    "quantizer",
+    {
+      slug: "quantizer",
+      kernel: quantizerKernel,
+      // Fully previewed. Fixed C root; Scale selects the pitch-class set
+      // (Chrom/Maj/Min/Pent/Harm Min — "Harm Min" is C harmonic minor). See
+      // quantizer.ts header for the nearest-note-across-octaves algorithm
+      // and its halfway-tie convention (ties resolve to the higher note).
+      inJacks: ["CV"],
+      outJacks: ["Out"],
+      params: {
+        Scale: {
+          min: 0,
+          max: 4,
+          default: 0,
+          curve: "positions",
+          positions: ["Chrom", "Maj", "Min", "Pent", "Harm Min"],
+        },
       },
     },
   ],
