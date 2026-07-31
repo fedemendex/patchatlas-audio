@@ -24,6 +24,7 @@ import { triggerSequencerKernel } from "./triggerSequencer";
 import { ringModKernel } from "./ringMod";
 import { lowPassGateKernel } from "./lowPassGate";
 import { reverbKernel } from "./reverb";
+import { wavefolderKernel } from "./wavefolder";
 
 export interface ModuleDSP {
   slug: string; // must exist in seed/generic_modules.json
@@ -350,6 +351,25 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       outJacks: ["Out"],
       params: {
         Mode: { min: 0, max: 2, default: 2, curve: "positions", positions: ["VCA", "LPG", "Both"] },
+      },
+    },
+  ],
+  [
+    "wavefolder",
+    {
+      slug: "wavefolder",
+      kernel: wavefolderKernel,
+      // Clean digital triangle/reflection folder (see wavefolder.ts header) —
+      // an educational preview model, not a specific circuit emulation. Fold
+      // defaults to its minimum (1x, unity gain into the folder) so an
+      // untouched knob passes audio through unfolded, matching the Cutoff
+      // default-at-min convention used by "filter" for the same reason.
+      inJacks: ["In", "Fold CV", "Sym CV"],
+      outJacks: ["Out"],
+      params: {
+        Fold: { min: 1, max: 8, default: 1, curve: "exponential" },
+        Sym: { min: -1, max: 1, default: 0, curve: "linear" },
+        Bias: { min: -1, max: 1, default: 0, curve: "linear" },
       },
     },
   ],

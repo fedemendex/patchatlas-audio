@@ -186,6 +186,50 @@ matching the audio/CV bipolar convention rather than a raw volt² product. An un
 to normal an unpatched input to. Non-finite input samples read as 0 V. No soft-clipping —
 `audio-output` owns final DAC limiting.
 
+## Wavefolder
+
+The wavefolder (`wavefolder`) is Patch Atlas's generic educational preview model of a clean
+digital triangle/reflection folder — it is not modeled on, or claimed to match, any specific
+Buchla/Serge folding circuit. The folding function is a closed-form triangle wave via
+`asin(sin(.))`, exact (not an approximation) inside the linear region and reflecting beyond it:
+
+```
+u   = (pi / (2*T)) * driven
+out = (2*T / pi) * asin(sin(u))
+```
+
+For `|driven| <= T` this is bit-exact `out = driven` (`asin` is the true inverse of `sin` over
+`[-pi/2, pi/2]`) — a genuine unity-gain passthrough, not a curve that merely approaches one.
+Beyond `T` the signal reflects back down, and continues reflecting for larger excursions, which
+is the textbook triangle/reflection fold. `Math.sin`/`Math.asin` are bounded for any finite
+argument, so `|out|` never exceeds `T` regardless of how large `driven` gets — bounded output and
+freedom from `NaN`/`Infinity` fall out of the formula itself, with no separate output clamp.
+
+- `driven = In * foldGain + biasVolts`. `In` unpatched/non-finite reads as 0 V.
+- **`Fold`** (1..8, exponential, default 1) sets `foldGain`, summed with `Fold CV` (normalized by
+  `CV_BIPOLAR_MAX`, unbounded before the final clamp to `[1, 8]` — same convention as the filter's
+  `Res CV`). At `Fold` = 1 (the knob's rest position) a signal within the nominal `AUDIO_NORM`
+  range folds not at all: an untouched knob passes audio straight through, not silence or heavy
+  coloration. Turning `Fold` up drives more of the signal past the threshold, producing additional
+  folds (more zero-crossings/harmonic complexity) as amplitude increases.
+- **`Sym`** (bipolar −1..1, default 0, + `Sym CV` summed the same way) skews the fold threshold
+  asymmetrically per polarity of `driven`: `T_pos = AUDIO_NORM * (1 - Sym * 0.6)`,
+  `T_neg = AUDIO_NORM * (1 + Sym * 0.6)`. At `Sym` = 0 both thresholds equal `AUDIO_NORM` and the
+  folder is a pure odd function (`fold(-x) = -fold(x)`); away from 0 the positive and negative
+  halves fold at different amounts, adding even harmonics. The 0.6 depth keeps both thresholds
+  comfortably above 0 V at the extremes (0.4×..1.6× `AUDIO_NORM`).
+- **`Bias`** (bipolar −1..1, default 0) adds a fixed `Bias * 0.6 * AUDIO_NORM` (≤ ±3 V) offset to
+  `driven` before folding — a second, DC-based way to push the waveform into asymmetric folding,
+  distinct from `Sym`'s threshold skew. Near `driven` = 0 the fold function's slope is always
+  exactly 1 regardless of `T`, so low-level signal stays clean through `Sym`/`Bias` changes; only
+  larger excursions actually fold.
+- No soft-clipping inside the module — `audio-output` owns final DAC limiting, same convention as
+  the ring modulator and VCA.
+- **Known limitation**: v1 does no oversampling. A hard reflection introduces harmonics above the
+  input's own bandwidth, and without band-limiting they can alias above Nyquist at high `Fold`
+  settings on bright material. This is a documented preview-quality trade-off, not a bug —
+  oversampling is deferred rather than adding a large hidden CPU cost to every block.
+
 ## Filter resonance
 
 The state-variable filter (`filter`) maps its linear 0..1 `Res` param exponentially onto
