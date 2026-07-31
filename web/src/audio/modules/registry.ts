@@ -20,6 +20,7 @@ import { noiseSourceKernel } from "./noiseSource";
 import { sampleAndHoldKernel } from "./sampleAndHold";
 import { clockKernel } from "./clock";
 import { sequencerKernel } from "./sequencer";
+import { triggerSequencerKernel } from "./triggerSequencer";
 import { ringModKernel } from "./ringMod";
 import { lowPassGateKernel } from "./lowPassGate";
 import { reverbKernel } from "./reverb";
@@ -288,6 +289,30 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
         "CV 6": { min: 0, max: 2, default: 0, curve: "linear" },
         "CV 7": { min: 0, max: 2, default: 0, curve: "linear" },
         "CV 8": { min: 0, max: 2, default: 0, curve: "linear" },
+        "On 1": { min: 0, max: 1, default: 1, curve: "linear" },
+        "On 2": { min: 0, max: 1, default: 1, curve: "linear" },
+        "On 3": { min: 0, max: 1, default: 1, curve: "linear" },
+        "On 4": { min: 0, max: 1, default: 1, curve: "linear" },
+        "On 5": { min: 0, max: 1, default: 1, curve: "linear" },
+        "On 6": { min: 0, max: 1, default: 1, curve: "linear" },
+        "On 7": { min: 0, max: 1, default: 1, curve: "linear" },
+        "On 8": { min: 0, max: 1, default: 1, curve: "linear" },
+      },
+    },
+  ],
+  [
+    "trigger-sequencer",
+    {
+      slug: "trigger-sequencer",
+      kernel: triggerSequencerKernel,
+      reportsStep: true, // current step surfaced to the editor's step buttons
+      // Fully previewed. No Len control in this seed — the cycle hard-wraps at
+      // 8 steps unless shortened by patching an S<n> output back into Rst (see
+      // triggerSequencer.ts header). CV modulates Gate Len 1 V/oct.
+      inJacks: ["Clk", "Rst", "CV"],
+      outJacks: ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "EOC", "Trig", "Gate"],
+      params: {
+        "Gate Len": { min: 0.001, max: 2, default: 0.05, curve: "exponential" },
         "On 1": { min: 0, max: 1, default: 1, curve: "linear" },
         "On 2": { min: 0, max: 1, default: 1, curve: "linear" },
         "On 3": { min: 0, max: 1, default: 1, curve: "linear" },

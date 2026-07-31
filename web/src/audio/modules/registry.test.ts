@@ -19,6 +19,7 @@ import { noiseSourceKernel } from "./noiseSource";
 import { sampleAndHoldKernel } from "./sampleAndHold";
 import { clockKernel } from "./clock";
 import { sequencerKernel } from "./sequencer";
+import { triggerSequencerKernel } from "./triggerSequencer";
 import { ringModKernel } from "./ringMod";
 import { lowPassGateKernel } from "./lowPassGate";
 import { reverbKernel } from "./reverb";
@@ -285,8 +286,8 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the seventeen registered entries (size 17)", () => {
-    expect(registry.size).toBe(17);
+  it("has exactly the eighteen registered entries (size 18)", () => {
+    expect(registry.size).toBe(18);
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -302,6 +303,7 @@ describe("production registry", () => {
       "sample-and-hold",
       "clock",
       "sequencer",
+      "trigger-sequencer",
       "ring-modulator",
       "low-pass-gate",
       "reverb",
@@ -369,6 +371,10 @@ describe("production registry", () => {
 
   it("sequencer entry uses the canonical sequencerKernel", () => {
     expect(registry.get("sequencer")?.kernel).toBe(sequencerKernel);
+  });
+
+  it("trigger-sequencer entry uses the canonical triggerSequencerKernel", () => {
+    expect(registry.get("trigger-sequencer")?.kernel).toBe(triggerSequencerKernel);
   });
 
   it("ring-modulator entry uses the canonical ringModKernel", () => {
@@ -494,12 +500,21 @@ describe("preview capability metadata", () => {
     expect(entry?.preview).toBeUndefined();
   });
 
+  it("trigger-sequencer is fully previewed — Clk/Rst/CV wired, S1..S8/EOC/Trig/Gate outputs, no preview block", () => {
+    const entry = registry.get("trigger-sequencer");
+    expect(entry?.inJacks).toEqual(["Clk", "Rst", "CV"]);
+    expect(entry?.outJacks).toEqual([
+      "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "EOC", "Trig", "Gate",
+    ]);
+    expect(entry?.preview).toBeUndefined();
+  });
+
   it("noise-source is fully previewed — White, Pink, Red, Blue all implemented, no preview block", () => {
     expect(registry.get("noise-source")?.preview).toBeUndefined();
   });
 
   it("leaves fully-previewed modules without a preview block", () => {
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "function-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "ring-modulator", "low-pass-gate", "reverb"]) {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "function-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "trigger-sequencer", "ring-modulator", "low-pass-gate", "reverb"]) {
       expect(registry.get(slug)?.preview).toBeUndefined();
     }
   });
@@ -516,7 +531,7 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for all seventeen registered playable slugs", () => {
+  it("returns true for all eighteen registered playable slugs", () => {
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -532,6 +547,7 @@ describe("isPlayable", () => {
       "sample-and-hold",
       "clock",
       "sequencer",
+      "trigger-sequencer",
       "ring-modulator",
       "low-pass-gate",
       "reverb",
