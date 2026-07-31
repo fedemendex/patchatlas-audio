@@ -25,6 +25,8 @@ import { ringModKernel } from "./ringMod";
 import { lowPassGateKernel } from "./lowPassGate";
 import { reverbKernel } from "./reverb";
 import { wavefolderKernel } from "./wavefolder";
+import { sequentialSwitch1ToNKernel } from "./sequentialSwitch1ToN";
+import { sequentialSwitchNTo1Kernel } from "./sequentialSwitchNTo1";
 
 export interface ModuleDSP {
   slug: string; // must exist in seed/generic_modules.json
@@ -394,6 +396,38 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
         Decay: { min: 0, max: 1, default: 0.32, curve: "linear" },
         Damp: { min: 0, max: 1, default: 0.64, curve: "linear" },
         Mix: { min: 0, max: 1, default: 0.25, curve: "linear" },
+      },
+    },
+  ],
+  [
+    "sequential-switch-1-to-n",
+    {
+      slug: "sequential-switch-1-to-n",
+      kernel: sequentialSwitch1ToNKernel,
+      // Fully previewed. Steps (1..4, default 4 = full rotation) picks how many
+      // of the 4 outputs are in the active pool, starting from Out 1; Clk
+      // rotates through the pool, Rst returns to Out 1, and Sel (when patched)
+      // addresses the active output directly — see sequentialSwitch1ToN.ts header.
+      inJacks: ["In", "Clk", "Rst", "Sel"],
+      outJacks: ["Out 1", "Out 2", "Out 3", "Out 4"],
+      params: {
+        Steps: { min: 1, max: 4, default: 4, curve: "linear" },
+      },
+    },
+  ],
+  [
+    "sequential-switch-n-to-1",
+    {
+      slug: "sequential-switch-n-to-1",
+      kernel: sequentialSwitchNTo1Kernel,
+      // Fully previewed. Steps (1..4, default 4 = full rotation) picks how many
+      // of the 4 inputs are in the active pool, starting from In 1; Clk rotates
+      // through the pool, Rst returns to In 1, and Sel (when patched) addresses
+      // the active input directly — see sequentialSwitchNTo1.ts header.
+      inJacks: ["In 1", "In 2", "In 3", "In 4", "Clk", "Rst", "Sel"],
+      outJacks: ["Out"],
+      params: {
+        Steps: { min: 1, max: 4, default: 4, curve: "linear" },
       },
     },
   ],

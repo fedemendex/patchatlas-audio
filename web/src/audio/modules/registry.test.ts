@@ -24,6 +24,8 @@ import { ringModKernel } from "./ringMod";
 import { lowPassGateKernel } from "./lowPassGate";
 import { reverbKernel } from "./reverb";
 import { wavefolderKernel } from "./wavefolder";
+import { sequentialSwitch1ToNKernel } from "./sequentialSwitch1ToN";
+import { sequentialSwitchNTo1Kernel } from "./sequentialSwitchNTo1";
 import { toyGainKernel, toySineKernel } from "../engine/testKernels";
 
 // --- Seed-integrity validator -----------------------------------------------
@@ -287,8 +289,8 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the nineteen registered entries (size 19)", () => {
-    expect(registry.size).toBe(19);
+  it("has exactly the twenty-one registered entries (size 21)", () => {
+    expect(registry.size).toBe(21);
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -309,6 +311,8 @@ describe("production registry", () => {
       "low-pass-gate",
       "reverb",
       "wavefolder",
+      "sequential-switch-1-to-n",
+      "sequential-switch-n-to-1",
     ]) {
       expect(registry.has(slug)).toBe(true);
     }
@@ -405,6 +409,24 @@ describe("production registry", () => {
   it("wavefolder Fold defaults to its minimum so an untouched knob passes through unfolded", () => {
     const fold = registry.get("wavefolder")?.params.Fold;
     expect(fold?.default).toBe(fold?.min);
+  });
+
+  it("sequential-switch-1-to-n entry uses the canonical sequentialSwitch1ToNKernel", () => {
+    expect(registry.get("sequential-switch-1-to-n")?.kernel).toBe(sequentialSwitch1ToNKernel);
+  });
+
+  it("sequential-switch-1-to-n Steps defaults to its maximum so an untouched knob rotates through all 4 outputs", () => {
+    const steps = registry.get("sequential-switch-1-to-n")?.params.Steps;
+    expect(steps?.default).toBe(steps?.max);
+  });
+
+  it("sequential-switch-n-to-1 entry uses the canonical sequentialSwitchNTo1Kernel", () => {
+    expect(registry.get("sequential-switch-n-to-1")?.kernel).toBe(sequentialSwitchNTo1Kernel);
+  });
+
+  it("sequential-switch-n-to-1 Steps defaults to its maximum so an untouched knob rotates through all 4 inputs", () => {
+    const steps = registry.get("sequential-switch-n-to-1")?.params.Steps;
+    expect(steps?.default).toBe(steps?.max);
   });
 
   it("does not contain the deferred noise-random slug", () => {
@@ -524,8 +546,22 @@ describe("preview capability metadata", () => {
     expect(registry.get("noise-source")?.preview).toBeUndefined();
   });
 
+  it("sequential-switch-1-to-n is fully previewed — In/Clk/Rst/Sel wired, Out 1..4 outputs, no preview block", () => {
+    const entry = registry.get("sequential-switch-1-to-n");
+    expect(entry?.inJacks).toEqual(["In", "Clk", "Rst", "Sel"]);
+    expect(entry?.outJacks).toEqual(["Out 1", "Out 2", "Out 3", "Out 4"]);
+    expect(entry?.preview).toBeUndefined();
+  });
+
+  it("sequential-switch-n-to-1 is fully previewed — In 1..4/Clk/Rst/Sel wired, single Out, no preview block", () => {
+    const entry = registry.get("sequential-switch-n-to-1");
+    expect(entry?.inJacks).toEqual(["In 1", "In 2", "In 3", "In 4", "Clk", "Rst", "Sel"]);
+    expect(entry?.outJacks).toEqual(["Out"]);
+    expect(entry?.preview).toBeUndefined();
+  });
+
   it("leaves fully-previewed modules without a preview block", () => {
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "function-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "trigger-sequencer", "ring-modulator", "low-pass-gate", "reverb", "wavefolder"]) {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "function-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "trigger-sequencer", "ring-modulator", "low-pass-gate", "reverb", "wavefolder", "sequential-switch-1-to-n", "sequential-switch-n-to-1"]) {
       expect(registry.get(slug)?.preview).toBeUndefined();
     }
   });
@@ -542,7 +578,7 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for all nineteen registered playable slugs", () => {
+  it("returns true for all twenty-one registered playable slugs", () => {
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -563,6 +599,8 @@ describe("isPlayable", () => {
       "low-pass-gate",
       "reverb",
       "wavefolder",
+      "sequential-switch-1-to-n",
+      "sequential-switch-n-to-1",
     ]) {
       expect(isPlayable(slug)).toBe(true);
     }
