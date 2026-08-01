@@ -1,0 +1,217 @@
+// Structured diagnostics for the generic compiler (compile.ts) — the
+// name-addressed counterpart to compileGraph's silent CompileWarning drops.
+// validate() and compilePatch() share resolvePatch() below so a Patch is
+// resolved against a registry exactly once; validate() just discards the
+// graph-shaping pieces (resolved node/edge maps) and returns the diagnostics.
+//
+// Every diagnostic carries a stable machine-readable code, a severity, the
+// relevant identifiers, whether the item was dropped, and a human-readable
+// message. Lenient loading drops what it safely can and keeps going;
+// structurally ambiguous input (a duplicate module id a connection
+// references) is not safe to guess at, so resolvePatch signals `loaded:
+// false` instead of arbitrarily picking one of the duplicates.
+
+import type { ModuleDSP } from "../modules/registry";
+import { compareId } from "./graph";
+import type { Patch, PatchConnection, PatchModule } from "./patch";
+
+export type DiagnosticCode =
+  | "unknown-module-type"
+  | "unknown-jack"
+  | "unknown-param"
+  | "duplicate-module-id"
+  | "connection-to-missing-module"
+  | "jack-direction-mismatch"
+  | "no-audio-output";
+
+export interface Diagnostic {
+  code: DiagnosticCode;
+  severity: "warning" | "error";
+  dropped: boolean;
+  message: string;
+  moduleId?: string;
+  jack?: string;
+  param?: string;
+  connection?: { from: [string, string]; to: [string, string] };
+}
+
+export interface ResolvedModule {
+  id: string;
+  dsp: ModuleDSP;
+  params: number[]; // slot order = Object.keys(dsp.params) order
+}
+
+export interface ResolvedEdge {
+  fromId: string;
+  outSlot: number;
+  toId: string;
+  inSlot: number;
+}
+
+export interface Resolution {
+  diagnostics: Diagnostic[];
+  loaded: boolean;
+  // Sorted by compareId — mirrors compileGraph's "instances sorted up front"
+  // so node/warning order never depends on the caller's array order.
+  ids: string[];
+  resolved: Map<string, ResolvedModule>;
+  edges: ResolvedEdge[];
+}
+
+function connectionRef(conn: PatchConnection): { from: [string, string]; to: [string, string] } {
+  return { from: [...conn.from], to: [...conn.to] };
+}
+
+// Resolves a Patch against a registry, producing every diagnostic and the
+// node/edge data compile.ts needs to shape an EngineGraph. Shared by
+// validate() and compilePatch() so the two can never disagree about what a
+// given Patch means.
+export function resolvePatch(patch: Patch, definitions: Map<string, ModuleDSP>): Resolution {
+  const diagnostics: Diagnostic[] = [];
+
+  const byId = new Map<string, PatchModule[]>();
+  for (const m of patch.modules) {
+    const list = byId.get(m.id);
+    if (list) list.push(m);
+    else byId.set(m.id, [m]);
+  }
+  const duplicateIds = new Set(
+    [...byId.entries()].filter(([, list]) => list.length > 1).map(([id]) => id),
+  );
+
+  // Modules sorted by id up front, matching graph.ts's compileGraph — module
+  // resolution order, and therefore diagnostic order, is independent of
+  // patch.modules' array order.
+  const modules = [...patch.modules].sort((a, b) => compareId(a.id, b.id));
+  const resolved = new Map<string, ResolvedModule>();
+
+  for (const m of modules) {
+    if (duplicateIds.has(m.id)) {
+      diagnostics.push({
+        code: "duplicate-module-id",
+        severity: "error",
+        dropped: true,
+        message: `module id "${m.id}" is used by more than one module`,
+        moduleId: m.id,
+      });
+      continue;
+    }
+    const dsp = definitions.get(m.type);
+    if (!dsp) {
+      diagnostics.push({
+        code: "unknown-module-type",
+        severity: "error",
+        dropped: true,
+        message: `module "${m.id}" has unknown type "${m.type}"`,
+        moduleId: m.id,
+      });
+      continue;
+    }
+    const provided = m.params ?? {};
+    for (const key of Object.keys(provided)) {
+      if (!Object.hasOwn(dsp.params, key)) {
+        diagnostics.push({
+          code: "unknown-param",
+          severity: "warning",
+          dropped: true,
+          message: `module "${m.id}" has no param "${key}"`,
+          moduleId: m.id,
+          param: key,
+        });
+      }
+    }
+    const params = Object.keys(dsp.params).map((name) => {
+      const raw = provided[name];
+      return raw !== undefined && Number.isFinite(raw) ? raw : dsp.params[name].default;
+    });
+    resolved.set(m.id, { id: m.id, dsp, params });
+  }
+
+  // A duplicate id referenced by a connection is structurally ambiguous —
+  // both copies were dropped above, but nothing here should be trusted to
+  // pick a graph for the caller, so the whole load is rejected.
+  let loaded = true;
+  for (const id of duplicateIds) {
+    if (patch.connections.some((c) => c.from[0] === id || c.to[0] === id)) {
+      loaded = false;
+      break;
+    }
+  }
+
+  // Sorted by a stable composite key up front, matching the module loop
+  // above — connection diagnostic order (unlike graph shape, which is
+  // re-sorted numerically downstream regardless) must not depend on the
+  // caller's array order either.
+  const connectionKey = (c: PatchConnection) => `${c.from[0]}::${c.from[1]}::${c.to[0]}::${c.to[1]}`;
+  const connections = [...patch.connections].sort((a, b) =>
+    compareId(connectionKey(a), connectionKey(b)),
+  );
+
+  const edges: ResolvedEdge[] = [];
+  for (const conn of connections) {
+    const [fromId, fromJack] = conn.from;
+    const [toId, toJack] = conn.to;
+    const from = resolved.get(fromId);
+    const to = resolved.get(toId);
+    if (!from || !to) {
+      diagnostics.push({
+        code: "connection-to-missing-module",
+        severity: "warning",
+        dropped: true,
+        message: `connection references a module that did not resolve`,
+        connection: connectionRef(conn),
+      });
+      continue;
+    }
+    const outSlot = from.dsp.outJacks.indexOf(fromJack);
+    if (outSlot === -1) {
+      const isDirectionMismatch = from.dsp.inJacks.includes(fromJack);
+      diagnostics.push({
+        code: isDirectionMismatch ? "jack-direction-mismatch" : "unknown-jack",
+        severity: "error",
+        dropped: true,
+        message: isDirectionMismatch
+          ? `"${fromJack}" on module "${fromId}" is an input jack, not an output`
+          : `module "${fromId}" has no output jack "${fromJack}"`,
+        moduleId: fromId,
+        jack: fromJack,
+        connection: connectionRef(conn),
+      });
+      continue;
+    }
+    const inSlot = to.dsp.inJacks.indexOf(toJack);
+    if (inSlot === -1) {
+      const isDirectionMismatch = to.dsp.outJacks.includes(toJack);
+      diagnostics.push({
+        code: isDirectionMismatch ? "jack-direction-mismatch" : "unknown-jack",
+        severity: "error",
+        dropped: true,
+        message: isDirectionMismatch
+          ? `"${toJack}" on module "${toId}" is an output jack, not an input`
+          : `module "${toId}" has no input jack "${toJack}"`,
+        moduleId: toId,
+        jack: toJack,
+        connection: connectionRef(conn),
+      });
+      continue;
+    }
+    edges.push({ fromId, outSlot, toId, inSlot });
+  }
+
+  const ids = [...resolved.keys()];
+  if (!ids.some((id) => (resolved.get(id) as ResolvedModule).dsp.audioOutput)) {
+    diagnostics.push({
+      code: "no-audio-output",
+      severity: "warning",
+      dropped: false,
+      message: "patch has no audio-output module",
+    });
+  }
+
+  return { diagnostics, loaded, ids, resolved, edges };
+}
+
+// Pure: no audio, no DOM, no browser APIs. Structural validation only.
+export function validate(patch: Patch, definitions: Map<string, ModuleDSP>): Diagnostic[] {
+  return resolvePatch(patch, definitions).diagnostics;
+}
