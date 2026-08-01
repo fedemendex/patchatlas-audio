@@ -11,6 +11,7 @@ import { vcaKernel } from "./vca";
 import { attenuverterKernel } from "./attenuverter";
 import { multKernel } from "./mult";
 import { mixerKernel } from "./mixer";
+import { crossfaderKernel } from "./crossfader";
 import { filterKernel } from "./filter";
 import { envelopeGeneratorKernel } from "./envelopeGenerator";
 import { functionGeneratorKernel } from "./functionGenerator";
@@ -293,8 +294,8 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the twenty-five registered entries (size 25)", () => {
-    expect(registry.size).toBe(25);
+  it("has exactly the twenty-six registered entries (size 26)", () => {
+    expect(registry.size).toBe(26);
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -302,6 +303,7 @@ describe("production registry", () => {
       "attenuverter",
       "mult",
       "mixer",
+      "crossfader",
       "filter",
       "envelope-generator",
       "function-generator",
@@ -352,6 +354,10 @@ describe("production registry", () => {
 
   it("filter entry uses the canonical filterKernel", () => {
     expect(registry.get("filter")?.kernel).toBe(filterKernel);
+  });
+
+  it("crossfader entry uses the canonical crossfaderKernel", () => {
+    expect(registry.get("crossfader")?.kernel).toBe(crossfaderKernel);
   });
 
   it("filter Cutoff defaults to its minimum so an untouched knob (fully left) sounds closed", () => {
@@ -620,7 +626,7 @@ describe("preview capability metadata", () => {
   });
 
   it("leaves fully-previewed modules without a preview block", () => {
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "function-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "trigger-sequencer", "ring-modulator", "low-pass-gate", "reverb", "wavefolder", "sequential-switch-1-to-n", "sequential-switch-n-to-1", "quantizer", "logic", "slew-limiter", "comparator"]) {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "crossfader", "filter", "envelope-generator", "function-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "trigger-sequencer", "ring-modulator", "low-pass-gate", "reverb", "wavefolder", "sequential-switch-1-to-n", "sequential-switch-n-to-1", "quantizer", "logic", "slew-limiter", "comparator"]) {
       expect(registry.get(slug)?.preview).toBeUndefined();
     }
   });
@@ -637,7 +643,7 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for all twenty-five registered playable slugs", () => {
+  it("returns true for all twenty-six registered playable slugs", () => {
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -645,6 +651,7 @@ describe("isPlayable", () => {
       "attenuverter",
       "mult",
       "mixer",
+      "crossfader",
       "filter",
       "envelope-generator",
       "function-generator",

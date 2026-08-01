@@ -12,6 +12,7 @@ import { vcaKernel } from "./vca";
 import { attenuverterKernel } from "./attenuverter";
 import { multKernel } from "./mult";
 import { mixerKernel } from "./mixer";
+import { crossfaderKernel } from "./crossfader";
 import { filterKernel } from "./filter";
 import { envelopeGeneratorKernel } from "./envelopeGenerator";
 import { functionGeneratorKernel } from "./functionGenerator";
@@ -153,6 +154,18 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
         "Level 2": { min: 0, max: 1, default: 1, curve: "linear" },
         "Level 3": { min: 0, max: 1, default: 1, curve: "linear" },
         "Level 4": { min: 0, max: 1, default: 1, curve: "linear" },
+      },
+    },
+  ],
+  [
+    "crossfader",
+    {
+      slug: "crossfader",
+      kernel: crossfaderKernel,
+      inJacks: ["A", "B", "CV"],
+      outJacks: ["Out"],
+      params: {
+        Fade: { min: -1, max: 1, default: 0, curve: "linear" },
       },
     },
   ],
