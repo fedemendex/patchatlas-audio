@@ -29,6 +29,7 @@ import { sequentialSwitchNTo1Kernel } from "./sequentialSwitchNTo1";
 import { quantizerKernel } from "./quantizer";
 import { logicKernel } from "./logic";
 import { slewLimiterKernel } from "./slewLimiter";
+import { comparatorKernel } from "./comparator";
 import { toyGainKernel, toySineKernel } from "../engine/testKernels";
 
 // --- Seed-integrity validator -----------------------------------------------
@@ -292,8 +293,8 @@ describe("seed-integrity validator", () => {
 });
 
 describe("production registry", () => {
-  it("has exactly the twenty-four registered entries (size 24)", () => {
-    expect(registry.size).toBe(24);
+  it("has exactly the twenty-five registered entries (size 25)", () => {
+    expect(registry.size).toBe(25);
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -319,6 +320,7 @@ describe("production registry", () => {
       "quantizer",
       "logic",
       "slew-limiter",
+      "comparator",
     ]) {
       expect(registry.has(slug)).toBe(true);
     }
@@ -467,6 +469,25 @@ describe("production registry", () => {
     expect(entry?.params.Fall).toEqual({ min: 0, max: 1, default: 0, curve: "linear" });
   });
 
+  it("comparator entry uses the canonical comparatorKernel", () => {
+    expect(registry.get("comparator")?.kernel).toBe(comparatorKernel);
+  });
+
+  it("comparator has the redesigned + In/− In/Offset CV inputs and Gate/Inv Gate/Sum outputs", () => {
+    const entry = registry.get("comparator");
+    expect(entry?.inJacks).toEqual(["+ In", "− In", "Offset CV"]);
+    expect(entry?.outJacks).toEqual(["Gate", "Inv Gate", "Sum"]);
+    expect(Object.keys(entry?.params ?? {})).toEqual(["Offset", "+ Level", "− Level", "Gap"]);
+  });
+
+  it("comparator + Level/− Level default to 1 (unity), Offset defaults to 0 (bipolar), Gap defaults to 0 (no hysteresis)", () => {
+    const entry = registry.get("comparator");
+    expect(entry?.params["+ Level"]).toEqual({ min: 0, max: 1, default: 1, curve: "linear" });
+    expect(entry?.params["− Level"]).toEqual({ min: 0, max: 1, default: 1, curve: "linear" });
+    expect(entry?.params.Offset).toEqual({ min: -5, max: 5, default: 0, curve: "linear" });
+    expect(entry?.params.Gap).toEqual({ min: 0, max: 10, default: 0, curve: "linear" });
+  });
+
   it("does not contain the deferred noise-random slug", () => {
     expect(registry.has("noise-random")).toBe(false);
   });
@@ -599,7 +620,7 @@ describe("preview capability metadata", () => {
   });
 
   it("leaves fully-previewed modules without a preview block", () => {
-    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "function-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "trigger-sequencer", "ring-modulator", "low-pass-gate", "reverb", "wavefolder", "sequential-switch-1-to-n", "sequential-switch-n-to-1", "quantizer", "logic", "slew-limiter"]) {
+    for (const slug of ["audio-output", "oscillator", "vca", "attenuverter", "mult", "mixer", "filter", "envelope-generator", "function-generator", "lfo", "sample-and-hold", "clock", "noise-source", "sequencer", "trigger-sequencer", "ring-modulator", "low-pass-gate", "reverb", "wavefolder", "sequential-switch-1-to-n", "sequential-switch-n-to-1", "quantizer", "logic", "slew-limiter", "comparator"]) {
       expect(registry.get(slug)?.preview).toBeUndefined();
     }
   });
@@ -616,7 +637,7 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for all twenty-four registered playable slugs", () => {
+  it("returns true for all twenty-five registered playable slugs", () => {
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -642,6 +663,7 @@ describe("isPlayable", () => {
       "quantizer",
       "logic",
       "slew-limiter",
+      "comparator",
     ]) {
       expect(isPlayable(slug)).toBe(true);
     }

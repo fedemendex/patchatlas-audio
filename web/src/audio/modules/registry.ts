@@ -5,7 +5,7 @@
 // registry.test.ts; every new kernel must pass docs/audio/kernel-checklist.md.
 
 import type { Kernel, ParamSpec } from "../engine/kernel";
-import { GATE_HIGH_V } from "../engine/units";
+import { GATE_HIGH_V, CV_BIPOLAR_MAX, CV_UNIPOLAR_MAX } from "../engine/units";
 import { audioOutputKernel } from "./audioOutput";
 import { oscillatorKernel } from "./oscillator";
 import { vcaKernel } from "./vca";
@@ -30,6 +30,7 @@ import { sequentialSwitchNTo1Kernel } from "./sequentialSwitchNTo1";
 import { quantizerKernel } from "./quantizer";
 import { logicKernel } from "./logic";
 import { slewLimiterKernel } from "./slewLimiter";
+import { comparatorKernel } from "./comparator";
 
 export interface ModuleDSP {
   slug: string; // must exist in seed/generic_modules.json
@@ -484,6 +485,26 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       params: {
         Rise: { min: 0, max: 1, default: 0, curve: "linear" },
         Fall: { min: 0, max: 1, default: 0, curve: "linear" },
+      },
+    },
+  ],
+  [
+    "comparator",
+    {
+      slug: "comparator",
+      kernel: comparatorKernel,
+      // Fully previewed. A-167-inspired comparator/subtractor: Sum outputs
+      // (+Level×+In) − (−Level×−In) + Offset + Offset CV directly (no
+      // clipping/smoothing); Gate/Inv Gate compare Sum to 0 V with Gap-knob
+      // symmetric hysteresis (Gap = 0 is a strict, non-hysteretic zero
+      // comparison) — see comparator.ts header and docs/audio/signals.md.
+      inJacks: ["+ In", "− In", "Offset CV"],
+      outJacks: ["Gate", "Inv Gate", "Sum"],
+      params: {
+        Offset: { min: -CV_BIPOLAR_MAX, max: CV_BIPOLAR_MAX, default: 0, curve: "linear" },
+        "+ Level": { min: 0, max: 1, default: 1, curve: "linear" },
+        "− Level": { min: 0, max: 1, default: 1, curve: "linear" },
+        Gap: { min: 0, max: CV_UNIPOLAR_MAX, default: 0, curve: "linear" },
       },
     },
   ],

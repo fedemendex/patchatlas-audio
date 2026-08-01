@@ -288,6 +288,34 @@ consumers therefore see an audio-scale signal even at maximum resonance — the 
 ±100 V integrator clamp is a numerical last resort, not the loudness ceiling. Zero-res
 behavior is bit-exact with the uncompensated filter. Full details: `filter.ts` header.
 
+## Comparator
+
+The comparator (`comparator`) is a Doepfer A-167-inspired comparator/subtractor — an original
+interpretation of the A-167's summing-comparator topology, not a traced circuit model. Its seeded
+inputs/control were renamed (`A` → `+ In`, `B` → `− In`, `Thresh` (input) → `Offset CV`, `Thresh`
+(control) → `Offset`; migration `0037_rename_comparator_jacks_and_control`) and it gained `+ Level`/
+`− Level`/`Gap` knobs and a `Sum` output.
+
+- **`Sum`** outputs, every sample, exactly:
+  `sum = (+ Level × + In) − (− Level × − In) + Offset + Offset CV`
+  with no normalization, clipping, or smoothing — DC, negative, and bipolar/audio-rate signals all
+  pass through unchanged in shape. `+ In`/`− In`/`Offset CV` read as 0 V when unpatched or
+  non-finite, the standard convention. `+ Level`/`− Level` are unipolar 0..1 knobs (default 1,
+  unity); `Offset` is a bipolar knob over `±CV_BIPOLAR_MAX`, default 0.
+- **`Gate`/`Inv Gate`** compare `Sum` to 0 V with `Gap`-knob symmetric hysteresis (`Gap` is unipolar
+  0..`CV_UNIPOLAR_MAX`, default 0, in engine volts):
+  - `Gap <= 0` (including the default): a strict, non-hysteretic zero comparison — `Gate` is high
+    iff `Sum > 0` (equality is low), independent of the previous state, so `Gap = 0` behavior is
+    exactly reproducible regardless of Gate's prior value.
+  - `Gap > 0`: symmetric hysteresis around zero — while low, `Gate` goes high only once
+    `Sum > Gap / 2`; while high, `Gate` goes low only once `Sum < −Gap / 2`; between those
+    thresholds `Gate` holds its previous state.
+  - `Inv Gate` is always the exact logical complement of `Gate` (never an independent comparison).
+  - Both write `GATE_HIGH_V` for high and exactly 0 for low, the standard gate convention. The
+    comparator's internal hysteresis state starts low when the module instance is created and is
+    not persisted beyond the instance's lifetime.
+- Full details: `comparator.ts` header.
+
 ## Timing
 
 - **Sample rate**: taken from the environment (`AudioContext.sampleRate`) at kernel init.
