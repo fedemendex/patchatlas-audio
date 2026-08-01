@@ -248,6 +248,35 @@ third input was renamed from `In 3` to `Clock` (the stable slug `logic` and the 
   latch) persists across render blocks; there is no reset input, so re-creating the module is the
   only way to return `FF` to low. `In 1`/`In 2` have no effect on `FF`.
 
+## Slew limiter
+
+The slew limiter (`slew-limiter`) is a linear, constant-rate slew — not a one-pole/exponential
+follower — with independent `Rise` and `Fall` controls. The output moves toward the `In` target
+at a fixed rate and stops exactly at the target: it never overshoots.
+
+- **Units**: each control is the time, in seconds, to traverse **one engine voltage unit** ("s/V"),
+  not a full-scale time. The seed control is a plain knob with no numeric range, so the raw 0..1
+  value maps in-kernel onto `[0.0005, 2]` s/V:
+  `timePerVolt = 0.0005 * (2 / 0.0005) ^ raw` — the same in-kernel-mapping convention as
+  `sample-and-hold`'s `Slew` control.
+- **Bypass**: raw `0` (the knob's rest position and its default) is a **hard bypass** for that
+  direction — `In` passes straight through with no limiting at all, not merely a fast slew. This
+  is what makes a fully-CCW `Rise`/`Fall` knob an exact passthrough, matching an unpatched jack.
+- **Rate**: sample-rate independent — `maxChangePerSample = (1 / timePerVolt) / sr` — computed
+  fresh from the current sample rate at every sample, so real-time behavior is identical across
+  sample rates.
+- **Rise CV / Fall CV**: 1 oct/V scaling of the effective time while the corresponding knob is
+  above bypass (positive volts lengthen the time, the same convention as `function-generator`'s
+  `Rise CV`/`Fall CV`), clamped back to `[0.0005, 2]` s/V. CV has no effect while the knob is at
+  bypass — there is no base rate to scale. Non-finite CV samples read as 0 V.
+- **Initialization**: unlike most kernels, the internal state does **not** start at 0 V. On the
+  first sample this kernel instance ever processes, the output is set directly to the (sanitized)
+  `In` sample, so a patch that starts with a nonzero DC level does not ramp up from an artificial
+  0 V starting point.
+- `In` unpatched/non-finite reads as 0 V, the standard convention. Output is never clamped to an
+  arbitrary voltage range — it is only ever moved toward, and stopped at, the target, so DC,
+  negative, and bipolar CV pass through unchanged in shape.
+
 ## Filter resonance
 
 The state-variable filter (`filter`) maps its linear 0..1 `Res` param exponentially onto

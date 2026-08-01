@@ -29,6 +29,7 @@ import { sequentialSwitch1ToNKernel } from "./sequentialSwitch1ToN";
 import { sequentialSwitchNTo1Kernel } from "./sequentialSwitchNTo1";
 import { quantizerKernel } from "./quantizer";
 import { logicKernel } from "./logic";
+import { slewLimiterKernel } from "./slewLimiter";
 
 export interface ModuleDSP {
   slug: string; // must exist in seed/generic_modules.json
@@ -467,6 +468,23 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       inJacks: ["In 1", "In 2", "Clock"],
       outJacks: ["AND", "OR", "XOR", "NOR", "FF"],
       params: {},
+    },
+  ],
+  [
+    "slew-limiter",
+    {
+      slug: "slew-limiter",
+      kernel: slewLimiterKernel,
+      // Fully previewed. Linear, constant-rate slew (not a one-pole filter) with
+      // independent Rise/Fall; each raw 0..1 knob maps in-kernel onto a
+      // 0.0005..2 s/V rate, 0 = exact bypass for that direction — see
+      // slewLimiter.ts header and docs/audio/signals.md.
+      inJacks: ["In", "Rise CV", "Fall CV"],
+      outJacks: ["Out"],
+      params: {
+        Rise: { min: 0, max: 1, default: 0, curve: "linear" },
+        Fall: { min: 0, max: 1, default: 0, curve: "linear" },
+      },
     },
   ],
 ]);
