@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>patchatlas-audio playground</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header>
+    <h1>patchatlas-audio playground</h1>
+    <p>
+      A framework-free demo of <code>patchatlas-audio</code>'s public API, running from the
+      published <code>dist</code> build. No graphical patch editing here — see the package
+      README for that boundary.
+    </p>
+  </header>
+
+  <main>
+    <section aria-label="Transport">
+      <button id="start-btn" type="button">▶ Start</button>
+      <button id="stop-btn" type="button" disabled>■ Stop</button>
+      <span id="status" role="status">idle</span>
+    </section>
+
+    <section aria-label="Preset">
+      <label for="preset-select">Patch</label>
+      <select id="preset-select"></select>
+      <p>Now playing: <strong id="now-playing">—</strong></p>
+      <p id="preset-description"></p>
+    </section>
+
+    <section aria-label="Oscilloscope">
+      <h2>Oscilloscope</h2>
+      <canvas id="scope" width="640" height="160"></canvas>
+    </section>
+
+    <section aria-label="Controls">
+      <h2>Controls</h2>
+      <div id="controls"></div>
+    </section>
+
+    <section aria-label="Diagnostics">
+      <h2>Diagnostics</h2>
+      <ul id="diagnostics"></ul>
+    </section>
+  </main>
+
+  <!--
+    Maps the bare "patchatlas-audio" specifier main.js imports to the
+    package's own built dist/index.js, copied byte-for-byte alongside this
+    file by scripts/copy-assets.mjs (rolldown/tsdown does not bundle real npm
+    dependencies by default, so this import survives the build unresolved).
+    The browser therefore loads exactly the artifact npm's `exports` map
+    would hand any other bundler -- never the TypeScript sources.
+  -->
+  <script type="importmap">
+    { "imports": { "patchatlas-audio": "./patchatlas-audio.js" } }
+  </script>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

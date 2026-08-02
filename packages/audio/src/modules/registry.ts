@@ -4,7 +4,7 @@
 // via the catalog Module objects. Integrity against the seed is enforced by
 // web/src/audio/seedConformance.test.ts (PatchAtlas-side, checked against the
 // public getModuleDefinitions() surface); every new kernel must pass
-// docs/audio/kernel-checklist.md.
+// packages/audio/docs/kernel-checklist.md.
 
 import type { Kernel, ParamSpec } from "../engine/kernel";
 import { GATE_HIGH_V, CV_BIPOLAR_MAX, CV_UNIPOLAR_MAX } from "../engine/units";
@@ -495,7 +495,7 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       // Fully previewed. Linear, constant-rate slew (not a one-pole filter) with
       // independent Rise/Fall; each raw 0..1 knob maps in-kernel onto a
       // 0.0005..2 s/V rate, 0 = exact bypass for that direction — see
-      // slewLimiter.ts header and docs/audio/signals.md.
+      // slewLimiter.ts header and packages/audio/docs/signals.md.
       inJacks: ["In", "Rise CV", "Fall CV"],
       outJacks: ["Out"],
       params: {
@@ -513,7 +513,7 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       // (+Level×+In) − (−Level×−In) + Offset + Offset CV directly (no
       // clipping/smoothing); Gate/Inv Gate compare Sum to 0 V with Gap-knob
       // symmetric hysteresis (Gap = 0 is a strict, non-hysteretic zero
-      // comparison) — see comparator.ts header and docs/audio/signals.md.
+      // comparison) — see comparator.ts header and packages/audio/docs/signals.md.
       inJacks: ["+ In", "− In", "Offset CV"],
       outJacks: ["Gate", "Inv Gate", "Sum"],
       params: {

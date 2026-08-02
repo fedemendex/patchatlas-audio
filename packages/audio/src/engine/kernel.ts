@@ -1,5 +1,5 @@
 // The fixed contract every module kernel implements.
-// Frozen after AP-2 — see docs/audio/kernel-checklist.md before adding kernels.
+// Frozen after AP-2 — see packages/audio/docs/kernel-checklist.md before adding kernels.
 
 export interface Kernel<S> {
   /** Allocate ALL state here. `sr` is the environment sample rate — never hardcoded. */

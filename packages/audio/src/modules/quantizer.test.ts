@@ -13,7 +13,7 @@ const MIN = 2;
 const PENT = 3;
 const HARM_MIN = 4;
 
-// Volts per semitone (1 V/oct pitch CV convention, see docs/audio/signals.md).
+// Volts per semitone (1 V/oct pitch CV convention, see packages/audio/docs/signals.md).
 const SEMI = 1 / 12;
 
 const CHROM_PCS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];

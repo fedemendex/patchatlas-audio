@@ -3,7 +3,7 @@
 // block by block. Zero browser dependencies — Vitest renders audio headlessly
 // through this class, and the AP-7 worklet is a thin shell over it.
 //
-// Hot-path discipline (see docs/audio/kernel-checklist.md): runBlock and
+// Hot-path discipline (see packages/audio/docs/kernel-checklist.md): runBlock and
 // readOutput allocate nothing — no `new`, no object/array literals, no
 // closures, no array methods. Plain indexed loops only. All string/map work
 // happens in the constructor or in setParam (a cold control path).

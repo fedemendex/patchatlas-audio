@@ -2,6 +2,8 @@
   "name": "patchatlas-audio",
   "version": "0.0.0",
   "type": "module",
+  "license": "MIT",
+  "description": "A dependency-free Web Audio engine for modular-synth-style patches: describe a patch as plain JSON, run it in a single AudioWorklet.",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

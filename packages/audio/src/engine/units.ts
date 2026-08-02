@@ -1,5 +1,5 @@
 // Virtual-voltage constants for the audio preview engine.
-// Canonical reference: docs/audio/signals.md
+// Canonical reference: packages/audio/docs/signals.md
 // No kernel may inline these numbers — always import from here.
 
 /** C4 frequency in Hz (0 V pitch reference). */

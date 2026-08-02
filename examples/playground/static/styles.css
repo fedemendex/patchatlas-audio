@@ -1,0 +1,130 @@
+:root {
+  color-scheme: light dark;
+  --fg: #1a1a1a;
+  --bg: #fafafa;
+  --border: #d0d0d0;
+  --accent: #16a34a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e8e8e8;
+    --bg: #16181c;
+    --border: #3a3d42;
+    --accent: #4ade80;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 1.5rem;
+  max-width: 48rem;
+  margin-inline: auto;
+  font-family: system-ui, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+  line-height: 1.5;
+}
+
+h1 {
+  font-size: 1.25rem;
+}
+
+code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.9em;
+}
+
+section {
+  margin-block: 1.5rem;
+  padding-block: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+button {
+  font: inherit;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button:not(:disabled):hover {
+  border-color: var(--accent);
+}
+
+#status {
+  margin-inline-start: 0.75rem;
+  font-family: ui-monospace, monospace;
+}
+
+select {
+  font: inherit;
+  padding: 0.35rem;
+}
+
+canvas#scope {
+  width: 100%;
+  max-width: 640px;
+  height: 160px;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: black;
+}
+
+fieldset.module-controls {
+  margin-block-end: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+}
+
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-block: 0.4rem;
+}
+
+.control-label {
+  min-width: 6rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+
+input[type="range"] {
+  flex: 1;
+}
+
+input[type="range"].bipolar {
+  accent-color: var(--accent);
+}
+
+#diagnostics {
+  list-style: none;
+  padding: 0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+
+.diagnostic-ok {
+  color: var(--accent);
+}
+
+.diagnostic-warning {
+  color: #d97706;
+}
+
+.diagnostic-error {
+  color: #dc2626;
+}
