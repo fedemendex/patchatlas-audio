@@ -1,0 +1,65 @@
+name: ci
+
+# Order matters: the root package must be typechecked, tested, built and
+# smoke-tested before the playground, since the playground's build consumes
+# the root package's built dist through its own `exports` map
+# (scripts/copy-assets.mjs) rather than the TypeScript sources.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run test
+
+      # Also runs the build assertion that dist/worklet.js has no unresolved
+      # imports (scripts/verify-worklet-bundle.mjs).
+      - run: npm run build
+
+      # Imports from dist through the package's own `exports` map and drives
+      # a minimal patch through the built worklet bundle.
+      - run: npm run smoke
+
+      - run: npm run typecheck --workspace=examples/playground
+
+      # Import-boundary test: every import in the playground resolves to the
+      # bare "patchatlas-audio" specifier, never a deep dist/src path.
+      - run: npm run test --workspace=examples/playground
+
+      # The playground must build in CI and fail if package exports or
+      # worklet delivery are broken -- that failure mode is the reason it
+      # exists. scripts/copy-assets.mjs resolves both "patchatlas-audio" and
+      # "patchatlas-audio/worklet.js" through the package's own `exports`
+      # map, so a deleted/renamed export subpath fails this step.
+      - run: npm run build --workspace=examples/playground
+
+      # Headless Chromium, RMS-probing a genuine AnalyserNode fed by the
+      # built worklet bundle through the import-map-resolved dist.
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - run: npm run test:e2e --workspace=examples/playground
