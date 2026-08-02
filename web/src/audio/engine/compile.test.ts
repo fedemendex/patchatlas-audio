@@ -52,6 +52,18 @@ describe("compilePatch param clamping", () => {
     const { graph } = compilePatch(patch, registry);
     expect(graph.nodes[0].params[0]).toBe(cutoffSpec.min);
   });
+
+  it("rounds a fractional value for a 'positions' curve param before clamping", () => {
+    const responseSpec = registry.get("vca")!.params.Response;
+    expect(responseSpec.curve).toBe("positions");
+    const patch: Patch = {
+      // Response is params[2]: Gain, CV Amt, Response (registry declaration order).
+      modules: [{ id: "a-vca", type: "vca", params: { Response: 0.6 } }],
+      connections: [],
+    };
+    const { graph } = compilePatch(patch, registry);
+    expect(graph.nodes[0].params[2]).toBe(1);
+  });
 });
 
 describe("compilePatch duplicate module ids", () => {

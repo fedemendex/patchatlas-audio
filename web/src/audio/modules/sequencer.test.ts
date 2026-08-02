@@ -6,11 +6,9 @@ import { registry, isPlayable } from "./registry";
 import { Interpreter } from "../engine/interpreter";
 import type { EngineGraph } from "../engine/graph";
 import { compilePatch } from "../engine/compile";
-import { toPatch } from "../patchAdapter";
+import type { Patch } from "../engine/patch";
 import type { Kernel } from "../engine/kernel";
 import type { ModuleDSP } from "./registry";
-import type { Module, ModuleControl, ModuleJack } from "../../lib/api";
-import type { PatchDraftDoc } from "../../patches/draft/patchDraft";
 import {
   BLOCK_FRAMES,
   GATE_HIGH_V,
@@ -115,7 +113,7 @@ describe("sequencer registry entry", () => {
   });
 
   it("is fully previewed (no preview block) now that Dir/Sel are wired", () => {
-    expect(registry.get("sequencer")?.preview).toBeUndefined();
+    expect(registry.get("sequencer")?.limitations).toBeUndefined();
   });
 
   it("uses the canonical sequencerKernel (identity)", () => {
@@ -593,42 +591,14 @@ describe("sequencerKernel — safety", () => {
 });
 
 // ── 7. On defaults through the compiler (missing → ON, explicit OFF rests) ────
+// Generic Patch, not the PatchAtlas adapter (#286: modules/ may not depend on
+// PatchAtlas domain types) — params are engine units keyed by seed control
+// NAME directly, so an omitted "On n" falls back to the registry default (1 =
+// ON) via resolvePatch (diagnostics.ts), exactly as an explicit 0 rests it.
 
-describe("sequencer On defaults — missing controlValues gate, explicit Off rests", () => {
-  const SEQ_MODULE_ID = "mod-sequencer";
-
-  // A catalog Module mirroring the seeded sequencer after count-expansion:
-  // Len knob, CV 1..8 knobs, On 1..8 buttons (groupIndex 1..8). Control ids are
-  // distinct from names so the compile proves id→name→param resolution.
-  function sequencerCatalog(): Module {
-    const controls: ModuleControl[] = [
-      { id: "len", name: "Len", kind: "knob", index: 0, bipolar: false, group: "Len", groupIndex: null, positions: null },
-    ];
-    for (let i = 1; i <= 8; i++)
-      controls.push({ id: `cv${i}`, name: `CV ${i}`, kind: "knob", index: i, bipolar: false, group: "Step", groupIndex: i, positions: null });
-    for (let i = 1; i <= 8; i++)
-      controls.push({ id: `on${i}`, name: `On ${i}`, kind: "button", index: 8 + i, bipolar: null, group: "Step", groupIndex: i, positions: null });
-    const jacks: ModuleJack[] = [
-      { id: "clk", name: "Clk", direction: "in", index: 0, group: null, groupIndex: null },
-      { id: "rst", name: "Rst", direction: "in", index: 1, group: null, groupIndex: null },
-      { id: "cvout", name: "CV", direction: "out", index: 0, group: null, groupIndex: null },
-      { id: "gate", name: "Gate", direction: "out", index: 1, group: null, groupIndex: null },
-    ];
-    return {
-      id: SEQ_MODULE_ID, name: "Sequencer", manufacturerName: null, isSeeded: true,
-      version: "1", hpWidth: null, description: null, slug: "sequencer",
-      gridRows: null, gridColumns: null, types: [], jacks, controls,
-      createdBy: null, createdAt: "", updatedAt: "",
-    };
-  }
-
-  function compileSeqParams(controlValues: Record<string, number | boolean>): Float32Array {
-    const d: PatchDraftDoc = {
-      meta: { title: "t", notes: "", visibility: "private", tags: [] },
-      modules: [{ instanceId: "seq", moduleId: SEQ_MODULE_ID, label: "", positionX: 0, positionY: 0, controlValues }],
-      connections: [],
-    };
-    const { patch } = toPatch(d, new Map([[SEQ_MODULE_ID, sequencerCatalog()]]), registry);
+describe("sequencer On defaults — missing params gate, explicit Off rests", () => {
+  function compileSeqParams(params: Record<string, number>): Float32Array {
+    const patch: Patch = { modules: [{ id: "seq", type: "sequencer", params }], connections: [] };
     const { graph } = compilePatch(patch, registry);
     const node = graph.nodes.find((n) => n.instanceId === "seq")!;
     return new Float32Array(node.params); // [Len, CV 1..8, On 1..8]
@@ -636,7 +606,7 @@ describe("sequencer On defaults — missing controlValues gate, explicit Off res
 
   const ON_BASE = 9; // params[9..16] are On 1..8
 
-  it("a fresh sequencer (no stored On values) compiles every step to ON and gates all steps", () => {
+  it("a fresh sequencer (no On params) compiles every step to ON and gates all steps", () => {
     const params = compileSeqParams({});
     for (let s = 0; s < 8; s++) expect(params[ON_BASE + s]).toBe(1);
 
@@ -651,7 +621,7 @@ describe("sequencer On defaults — missing controlValues gate, explicit Off res
   });
 
   it("an explicit Off on one step rests it while the others still gate", () => {
-    const params = compileSeqParams({ on3: false }); // On 3 → step index 2
+    const params = compileSeqParams({ "On 3": 0 }); // On 3 → step index 2
     expect(params[ON_BASE + 2]).toBe(0);
     for (let s = 0; s < 8; s++) if (s !== 2) expect(params[ON_BASE + s]).toBe(1);
 

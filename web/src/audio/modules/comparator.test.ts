@@ -96,7 +96,7 @@ describe("comparator registry entry", () => {
   });
 
   it("is fully previewed (no preview block)", () => {
-    expect(registry.get("comparator")?.preview).toBeUndefined();
+    expect(registry.get("comparator")?.limitations).toBeUndefined();
   });
 
   it("uses the canonical comparatorKernel (identity)", () => {

@@ -2,7 +2,9 @@
 // Keys are slugs from seed/generic_modules.json; jack and param names are seed NAMES
 // (stable across databases), never DB ids — the compiler (AP-3) resolves ids → names
 // via the catalog Module objects. Integrity against the seed is enforced by
-// registry.test.ts; every new kernel must pass docs/audio/kernel-checklist.md.
+// web/src/audio/seedConformance.test.ts (PatchAtlas-side, checked against the
+// public getModuleDefinitions() surface); every new kernel must pass
+// docs/audio/kernel-checklist.md.
 
 import type { Kernel, ParamSpec } from "../engine/kernel";
 import { GATE_HIGH_V, CV_BIPOLAR_MAX, CV_UNIPOLAR_MAX } from "../engine/units";
@@ -52,19 +54,20 @@ export interface ModuleDSP {
   // worklet forwards it on a throttled channel; it never affects DSP.
   reportsStep?: boolean;
 
-  // Preview capability metadata (AP-13). Seed NAMES of jacks/controls that are
-  // visible in the UI but produce no audible effect in the preview engine, so
-  // the UI can badge them and docs/audio/preview-coverage.md can enumerate them.
-  // A module with none of these fields is fully previewed. All names are
-  // validated against the seed in registry.test.ts. See preview-coverage.md for
-  // the taxonomy; the two mechanisms are:
+  // Fidelity metadata (AP-13; renamed from `preview` in #286 — "preview" is
+  // PatchAtlas's framing, not the package's). Seed NAMES of jacks/controls
+  // that are visible in the UI but produce no audible effect in this engine,
+  // so a host can badge them and docs/audio/preview-coverage.md can enumerate
+  // them. A module with none of these fields has no limitations. All names
+  // are validated against the seed in web/src/audio/seedConformance.test.ts.
+  // See preview-coverage.md for the taxonomy; the two mechanisms are:
   //   - declared-but-unread: the jack/control IS in inJacks/outJacks/params
   //     (silentOutputs / ignoredInputs / ignoredControls) — a cable/knob resolves
   //     to a real slot the kernel never reads.
   //   - deferred (seed-only): the jack/control is in the seed but absent from
   //     inJacks/outJacks/params (deferredJacks / deferredControls) — the compiler
   //     drops the connection and the control value is never passed.
-  preview?: {
+  limitations?: {
     silentOutputs?: string[]; // in outJacks; kernel writes silence every block
     ignoredInputs?: string[]; // in inJacks; kernel never reads the slot
     ignoredControls?: string[]; // in params; kernel never reads the slot

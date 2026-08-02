@@ -65,6 +65,41 @@ function connectionRef(conn: PatchConnection): { from: [string, string]; to: [st
   return { from: [...conn.from], to: [...conn.to] };
 }
 
+// Resolves one connection endpoint against its module's jack lists, pushing
+// a diagnostic (and returning -1) unless `jackName` is a real jack of the
+// expected role. Shared by both the `from`/output and `to`/input endpoints in
+// resolvePatch below so a future change to the diagnostic shape can't drift
+// between the two — they used to be two hand-copied blocks differing only in
+// field names and message wording.
+function resolveEndpointSlot(
+  role: "output" | "input",
+  moduleId: string,
+  dsp: ModuleDSP,
+  jackName: string,
+  conn: PatchConnection,
+  diagnostics: Diagnostic[],
+): number {
+  const ownList = role === "output" ? dsp.outJacks : dsp.inJacks;
+  const otherList = role === "output" ? dsp.inJacks : dsp.outJacks;
+  const otherRole = role === "output" ? "input" : "output";
+  const slot = ownList.indexOf(jackName);
+  if (slot === -1) {
+    const isDirectionMismatch = otherList.includes(jackName);
+    diagnostics.push({
+      code: isDirectionMismatch ? "jack-direction-mismatch" : "unknown-jack",
+      severity: "error",
+      dropped: true,
+      message: isDirectionMismatch
+        ? `"${jackName}" on module "${moduleId}" is an ${otherRole} jack, not an ${role}`
+        : `module "${moduleId}" has no ${role} jack "${jackName}"`,
+      moduleId,
+      jack: jackName,
+      connection: connectionRef(conn),
+    });
+  }
+  return slot;
+}
+
 // Resolves a Patch against a registry, producing every diagnostic and the
 // node/edge data compile.ts needs to shape an EngineGraph. Shared by
 // validate() and compilePatch() so the two can never disagree about what a
@@ -140,7 +175,10 @@ export function resolvePatch(patch: Patch, definitions: Map<string, ModuleDSP>):
       const spec = dsp.params[name];
       const raw = provided[name];
       if (raw === undefined || !Number.isFinite(raw)) return spec.default;
-      return clampToSpecRange(spec, raw);
+      // "positions" values are switch indices — round before clamping, the
+      // same as normalizedToEngineValue/engineValueToNormalized (params.ts),
+      // so a hand-authored Patch can't hand a kernel a fractional index.
+      return clampToSpecRange(spec, spec.curve === "positions" ? Math.round(raw) : raw);
     });
     resolved.set(m.id, { id: m.id, dsp, params });
   }
@@ -187,36 +225,8 @@ export function resolvePatch(patch: Patch, definitions: Map<string, ModuleDSP>):
     // diagnostic for each side instead of only the `from` one. The edge is
     // dropped either way, so this only ever adds diagnostics, never changes
     // which connections make it into the graph.
-    const outSlot = from.dsp.outJacks.indexOf(fromJack);
-    if (outSlot === -1) {
-      const isDirectionMismatch = from.dsp.inJacks.includes(fromJack);
-      diagnostics.push({
-        code: isDirectionMismatch ? "jack-direction-mismatch" : "unknown-jack",
-        severity: "error",
-        dropped: true,
-        message: isDirectionMismatch
-          ? `"${fromJack}" on module "${fromId}" is an input jack, not an output`
-          : `module "${fromId}" has no output jack "${fromJack}"`,
-        moduleId: fromId,
-        jack: fromJack,
-        connection: connectionRef(conn),
-      });
-    }
-    const inSlot = to.dsp.inJacks.indexOf(toJack);
-    if (inSlot === -1) {
-      const isDirectionMismatch = to.dsp.outJacks.includes(toJack);
-      diagnostics.push({
-        code: isDirectionMismatch ? "jack-direction-mismatch" : "unknown-jack",
-        severity: "error",
-        dropped: true,
-        message: isDirectionMismatch
-          ? `"${toJack}" on module "${toId}" is an output jack, not an input`
-          : `module "${toId}" has no input jack "${toJack}"`,
-        moduleId: toId,
-        jack: toJack,
-        connection: connectionRef(conn),
-      });
-    }
+    const outSlot = resolveEndpointSlot("output", fromId, from.dsp, fromJack, conn, diagnostics);
+    const inSlot = resolveEndpointSlot("input", toId, to.dsp, toJack, conn, diagnostics);
     if (outSlot === -1 || inSlot === -1) continue;
     edges.push({ fromId, outSlot, toId, inSlot });
   }

@@ -70,7 +70,7 @@ describe("logic registry entry", () => {
   });
 
   it("is fully previewed (no preview block)", () => {
-    expect(registry.get("logic")?.preview).toBeUndefined();
+    expect(registry.get("logic")?.limitations).toBeUndefined();
   });
 
   it("uses the canonical logicKernel (identity)", () => {

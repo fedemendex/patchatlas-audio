@@ -110,7 +110,7 @@ describe("trigger-sequencer registry entry", () => {
   });
 
   it("is fully previewed (no preview block)", () => {
-    expect(registry.get("trigger-sequencer")?.preview).toBeUndefined();
+    expect(registry.get("trigger-sequencer")?.limitations).toBeUndefined();
   });
 
   it("uses the canonical triggerSequencerKernel (identity)", () => {

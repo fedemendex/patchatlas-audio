@@ -84,7 +84,7 @@ describe("sequential-switch-1-to-n registry entry", () => {
   });
 
   it("is fully previewed (no preview block)", () => {
-    expect(registry.get("sequential-switch-1-to-n")?.preview).toBeUndefined();
+    expect(registry.get("sequential-switch-1-to-n")?.limitations).toBeUndefined();
   });
 
   it("uses the canonical sequentialSwitch1ToNKernel (identity)", () => {
