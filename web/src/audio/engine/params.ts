@@ -12,6 +12,14 @@ import type { ParamSpec } from "./kernel";
 
 const clamp01 = (x: number): number => Math.min(1, Math.max(0, x));
 
+// Shared [spec.min, spec.max] range clamp. Used by the "positions" curve case
+// below and by diagnostics.ts's hand-authored-Patch param clamp, so a future
+// change to clamping semantics can't drift between the UI-authored and
+// hand-authored Patch pipelines.
+export function clampToSpecRange(spec: ParamSpec, value: number): number {
+  return Math.min(spec.max, Math.max(spec.min, value));
+}
+
 // Normalized (stored) value → engine units. For linear/exponential the input
 // is a 0..1 knob position (clamped); for "positions" it is the switch index,
 // which already equals the engine value (rounded, clamped to [min, max]) — this
@@ -25,7 +33,7 @@ export function normalizedToEngineValue(spec: ParamSpec, normalized: number): nu
     case "exponential":
       return spec.min * Math.pow(spec.max / spec.min, clamp01(normalized));
     case "positions":
-      return Math.min(spec.max, Math.max(spec.min, Math.round(normalized)));
+      return clampToSpecRange(spec, Math.round(normalized));
   }
 }
 
@@ -46,7 +54,7 @@ export function engineValueToNormalized(spec: ParamSpec, value: number): number 
       if (spec.min <= 0 || spec.max <= 0 || spec.max === spec.min) return 0;
       return clamp01(Math.log(value / spec.min) / Math.log(spec.max / spec.min));
     case "positions":
-      return Math.min(spec.max, Math.max(spec.min, Math.round(value)));
+      return clampToSpecRange(spec, Math.round(value));
   }
 }
 

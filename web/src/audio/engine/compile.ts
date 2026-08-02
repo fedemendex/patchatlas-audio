@@ -25,17 +25,21 @@ export function compilePatch(
   const order = computeProcessingOrder(ids, successors);
   const indexById = new Map(order.map((id, i) => [id, i]));
 
-  const nodes: EngineNode[] = order.map((id) => {
+  // Single pass over `order`, one checked `resolved.get(id)` lookup shared by
+  // both nodes and outputNodes — the two used to look this id up separately,
+  // and the second lookup skipped the checked-and-thrown guard the first one
+  // has (safe only because `order` is always derived from `resolved`'s own
+  // keys; not worth two different failure modes for the same invariant).
+  const nodes: EngineNode[] = [];
+  const outputNodes: number[] = [];
+  order.forEach((id, i) => {
     const r = resolved.get(id);
     if (!r) throw new Error(`resolvePatch produced an order id "${id}" with no resolution`);
-    return { instanceId: id, slug: r.dsp.slug, params: r.params };
+    nodes.push({ instanceId: id, slug: r.dsp.slug, params: r.params });
+    if (r.dsp.audioOutput) outputNodes.push(i);
   });
 
   const engineEdges = shapeEdges(edges, indexById);
-
-  const outputNodes = order
-    .map((id, i) => ((resolved.get(id) as { dsp: ModuleDSP }).dsp.audioOutput ? i : -1))
-    .filter((i) => i !== -1);
 
   return { graph: { nodes, edges: engineEdges, outputNodes }, diagnostics, loaded };
 }

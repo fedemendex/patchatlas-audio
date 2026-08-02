@@ -14,6 +14,7 @@
 
 import type { ModuleDSP } from "../modules/registry";
 import { compareId } from "./graph";
+import { clampToSpecRange } from "./params";
 import type { Patch, PatchConnection, PatchModule } from "./patch";
 
 export type DiagnosticCode =
@@ -132,13 +133,14 @@ export function resolvePatch(patch: Patch, definitions: Map<string, ModuleDSP>):
     }
     // Engine units are the caller's responsibility (patch.ts), but a Patch
     // is a public entry point (compilePatch has no PatchAtlas-side validation
-    // in front of it) — clamp to the spec's declared range the same way the
-    // curve math (params.ts) already guarantees for every normalized input.
+    // in front of it) — clamp to the spec's declared range via the same
+    // clampToSpecRange the curve math (params.ts) uses for every normalized
+    // input, so the two Patch-authoring paths can't drift on clamp semantics.
     const params = Object.keys(dsp.params).map((name) => {
       const spec = dsp.params[name];
       const raw = provided[name];
       if (raw === undefined || !Number.isFinite(raw)) return spec.default;
-      return Math.min(spec.max, Math.max(spec.min, raw));
+      return clampToSpecRange(spec, raw);
     });
     resolved.set(m.id, { id: m.id, dsp, params });
   }

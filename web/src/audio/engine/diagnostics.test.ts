@@ -39,6 +39,19 @@ const registry = new Map<string, ModuleDSP>([
       audioOutput: { channels: 1 },
     },
   ],
+  [
+    "toy-thru",
+    {
+      // A pass-through module whose in-jack and out-jack share the literal
+      // name "Sig" — the case a same-name-both-directions Patch schema could
+      // plausibly confuse if it ever searched a merged in+out jack list.
+      slug: "toy-thru",
+      kernel: toyGainKernel,
+      inJacks: ["Sig"],
+      outJacks: ["Sig"],
+      params: {},
+    },
+  ],
 ]);
 
 function patch(overrides?: Partial<Patch>): Patch {
@@ -246,6 +259,27 @@ describe("validate", () => {
     expect(mismatches).toContainEqual(
       expect.objectContaining({ moduleId: "b", jack: "Out" }),
     );
+  });
+
+  it("resolves a module's same-named in/out jacks by connection position, not a merged name lookup", () => {
+    // "Sig" as a `from` endpoint must resolve against toy-thru's outJacks;
+    // "Sig" as a `to` endpoint must resolve against its inJacks. The two
+    // connections below only work if resolution never conflates the two.
+    const diags = validate(
+      patch({
+        modules: [
+          { id: "a", type: "toy-sine" },
+          { id: "t", type: "toy-thru" },
+          { id: "out", type: "toy-out" },
+        ],
+        connections: [
+          { from: ["a", "Out"], to: ["t", "Sig"] },
+          { from: ["t", "Sig"], to: ["out", "In"] },
+        ],
+      }),
+      registry,
+    );
+    expect(diags).toEqual([]);
   });
 
   it("no-audio-output: no resolved module declares audioOutput", () => {
