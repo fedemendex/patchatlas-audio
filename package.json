@@ -1,9 +1,17 @@
 {
   "name": "patchatlas-audio",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "license": "MIT",
   "description": "A dependency-free Web Audio engine for modular-synth-style patches: describe a patch as plain JSON, run it in a single AudioWorklet.",
+  "homepage": "https://github.com/fedemendex/patchatlas-audio#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fedemendex/patchatlas-audio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/fedemendex/patchatlas-audio/issues"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
