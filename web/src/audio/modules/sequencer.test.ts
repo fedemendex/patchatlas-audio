@@ -4,7 +4,9 @@ import { describe, it, expect } from "vitest";
 import { sequencerKernel } from "./sequencer";
 import { registry, isPlayable } from "./registry";
 import { Interpreter } from "../engine/interpreter";
-import { compileGraph, type EngineGraph } from "../engine/graph";
+import type { EngineGraph } from "../engine/graph";
+import { compilePatch } from "../engine/compile";
+import { toPatch } from "../patchAdapter";
 import type { Kernel } from "../engine/kernel";
 import type { ModuleDSP } from "./registry";
 import type { Module, ModuleControl, ModuleJack } from "../../lib/api";
@@ -590,7 +592,7 @@ describe("sequencerKernel — safety", () => {
   });
 });
 
-// ── 7. On defaults through compileGraph (missing → ON, explicit OFF rests) ────
+// ── 7. On defaults through the compiler (missing → ON, explicit OFF rests) ────
 
 describe("sequencer On defaults — missing controlValues gate, explicit Off rests", () => {
   const SEQ_MODULE_ID = "mod-sequencer";
@@ -626,7 +628,8 @@ describe("sequencer On defaults — missing controlValues gate, explicit Off res
       modules: [{ instanceId: "seq", moduleId: SEQ_MODULE_ID, label: "", positionX: 0, positionY: 0, controlValues }],
       connections: [],
     };
-    const { graph } = compileGraph(d, new Map([[SEQ_MODULE_ID, sequencerCatalog()]]), registry);
+    const { patch } = toPatch(d, new Map([[SEQ_MODULE_ID, sequencerCatalog()]]), registry);
+    const { graph } = compilePatch(patch, registry);
     const node = graph.nodes.find((n) => n.instanceId === "seq")!;
     return new Float32Array(node.params); // [Len, CV 1..8, On 1..8]
   }

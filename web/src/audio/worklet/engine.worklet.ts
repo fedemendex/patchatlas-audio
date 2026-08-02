@@ -101,7 +101,7 @@ class EngineProcessor extends AudioWorkletProcessor {
       interpreter = new Interpreter(graph, registry, sampleRate);
     } catch {
       // A malformed graph must not kill the processor; keep playing the
-      // current one. compileGraph + the shared registry make this unreachable
+      // current one. The compiler + the shared registry make this unreachable
       // in practice.
       return;
     }

@@ -113,6 +113,21 @@ describe("validate", () => {
     );
   });
 
+  it("invalid-param-value: a known param name with a non-finite value falls back to the default with a diagnostic", () => {
+    const diags = validate(
+      patch({ modules: [{ id: "a", type: "toy-sine", params: { Freq: NaN } }] }),
+      registry,
+    );
+    expect(diags).toContainEqual({
+      code: "invalid-param-value",
+      severity: "warning",
+      dropped: true,
+      message: `module "a" has a non-finite value for param "Freq"; using the default`,
+      moduleId: "a",
+      param: "Freq",
+    });
+  });
+
   it("connection diagnostics are ordered independently of patch.connections' array order", () => {
     const conflicting = patch({
       modules: [
@@ -208,6 +223,29 @@ describe("validate", () => {
       jack: "Out",
       connection: { from: ["a", "Out"], to: ["b", "Out"] },
     });
+  });
+
+  it("jack-direction-mismatch: both endpoints backwards produce one diagnostic per side", () => {
+    // Both jack names are real but swapped: "Out" is toy-sine's output used as
+    // the `to` endpoint, "In" is toy-gain's input used as the `from` endpoint.
+    const diags = validate(
+      patch({
+        modules: [
+          { id: "a", type: "toy-gain" },
+          { id: "b", type: "toy-sine" },
+        ],
+        connections: [{ from: ["a", "In"], to: ["b", "Out"] }],
+      }),
+      registry,
+    );
+    const mismatches = diags.filter((d) => d.code === "jack-direction-mismatch");
+    expect(mismatches).toHaveLength(2);
+    expect(mismatches).toContainEqual(
+      expect.objectContaining({ moduleId: "a", jack: "In" }),
+    );
+    expect(mismatches).toContainEqual(
+      expect.objectContaining({ moduleId: "b", jack: "Out" }),
+    );
   });
 
   it("no-audio-output: no resolved module declares audioOutput", () => {

@@ -87,7 +87,7 @@ export class Interpreter {
       if (!dsp) {
         throw new Error(
           `Interpreter: no registry entry for slug "${node.slug}" ` +
-            `(instance "${node.instanceId}") — compileGraph should have skipped this node`,
+            `(instance "${node.instanceId}") — the compiler should have skipped this node`,
         );
       }
       return dsp;
@@ -101,7 +101,7 @@ export class Interpreter {
 
     this.nodeIndexById = new Map(nodes.map((n, i) => [n.instanceId, i]));
     // Param slot order is Object.entries declaration order — never sorted;
-    // it must match how compileGraph laid out node.params.
+    // it must match how the compiler laid out node.params.
     this.paramIndexByName = dsps.map(
       (dsp) => new Map(Object.keys(dsp.params).map((name, i) => [name, i])),
     );
@@ -333,7 +333,7 @@ export class Interpreter {
    * IMPORTANT — engine units only: this method applies no curve transform.
    * Values must already be in engine units (e.g. Hz for Cutoff, not a
    * normalised 0..1 knob position). The `curve` field in ParamSpec is a
-   * UI/compile-time hint consumed by `paramValue()` in compileGraph; any
+   * UI/compile-time hint consumed by the adapter's `paramValue()` (patchAdapter.ts); any
    * future live-param fast-path (e.g. knob automation) must apply the same
    * exponential mapping before calling setParam — passing a normalised value
    * for an exponential param will pin the result at `min` for any input < min.

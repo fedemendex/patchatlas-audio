@@ -1,14 +1,6 @@
-// compileGraph: PatchDraftDoc → engine-ready graph + structured warnings.
-//
-// Pure and deterministic, mirroring patchDraft.ts: plain JSON in, plain JSON
-// out, catalog and DSP registry injected, no I/O. Warnings are data — the UI
-// (AP-13) renders them; nothing here is a user-facing string.
-
-import type { Module } from "../../lib/api";
-import type { PatchDraftDoc } from "../../patches/draft/patchDraft";
-import type { ModuleDSP } from "../modules/registry";
-import type { ParamSpec } from "./kernel";
-import { normalizedToEngineValue } from "./params";
+// Engine graph shape plus the deterministic ordering machinery shared by both
+// compilers: compilePatch (compile.ts), the generic, name-addressed entry
+// point, and PatchAtlas's adapter (patchAdapter.ts) upstream of it.
 
 export interface EngineNode {
   instanceId: string;
@@ -29,46 +21,13 @@ export interface EngineGraph {
   outputNodes: number[]; // indices of audio-output instances
 }
 
-export type CompileWarning =
-  | { kind: "custom-module"; instanceId: string; label: string }
-  | { kind: "unplayable-module"; instanceId: string; label: string; slug: string }
-  | { kind: "unknown-module"; instanceId: string }
-  | { kind: "no-audio-output" };
-
-// ── Param mapping ───────────────────────────────────────────────────────────
-// Knob values are stored normalized 0..1 (see ModulePanel); switches store a
-// position index. Curves map normalized → engine units.
-
-function paramValue(spec: ParamSpec, raw: number | boolean | undefined): number {
-  if (raw === undefined) return spec.default;
-  const v = typeof raw === "boolean" ? (raw ? 1 : 0) : raw;
-  if (!Number.isFinite(v)) return spec.default;
-  // Curve mapping is shared with the UI's rest-position math — see params.ts.
-  return normalizedToEngineValue(spec, v);
-}
-
-function paramsFor(dsp: ModuleDSP, module: Module, controlValues: Record<string, number | boolean>): number[] {
-  const controlIdByName = new Map(module.controls.map((c) => [c.name, c.id]));
-  return Object.entries(dsp.params).map(([name, spec]) => {
-    const controlId = controlIdByName.get(name);
-    const raw = controlId === undefined ? undefined : controlValues[controlId];
-    return paramValue(spec, raw);
-  });
-}
-
-// ── Compilation ─────────────────────────────────────────────────────────────
+// ── Ordering ────────────────────────────────────────────────────────────────
 
 // Code-unit compare. localeCompare collation varies with the runtime's ICU
 // locale (hyphens — which UUIDs are full of — can even be ignorable), and
 // ordering here must not depend on the environment. Exported so compile.ts
 // (AP-14) sorts caller ids the same way, rather than forking the comparator.
 export const compareId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
-
-interface Resolved {
-  instanceId: string;
-  module: Module;
-  dsp: ModuleDSP;
-}
 
 // Iterative Tarjan. `ids` must be sorted and `successors` lists sorted, so
 // component discovery — and therefore everything downstream — is
@@ -167,9 +126,7 @@ export function componentOrder(members: string[], successors: Map<string, string
 
 // Processing order for a resolved node set: SCC condensation topo-sorted
 // (Kahn, ties broken by the smallest instanceId in the component), members of
-// a cyclic component in DFS preorder from its smallest id. Shared by
-// compileGraph and compile.ts's compilePatch (AP-14) so the determinism
-// guarantees above are never forked between the two compilers. `ids` must be
+// a cyclic component in DFS preorder from its smallest id. `ids` must be
 // sorted and every `successors` list sorted, matching
 // stronglyConnectedComponents's contract.
 export function computeProcessingOrder(
@@ -212,9 +169,7 @@ export function computeProcessingOrder(
 }
 
 // Per-source successor lists, sorted for determinism — the direct input
-// computeProcessingOrder requires. Shared by compileGraph and compile.ts's
-// compilePatch so building that input can't drift between the two compilers
-// either.
+// computeProcessingOrder requires.
 export function buildSuccessors<E extends { fromId: string; toId: string }>(
   ids: string[],
   edges: E[],
@@ -229,8 +184,7 @@ export function buildSuccessors<E extends { fromId: string; toId: string }>(
 // as EngineGraph's numeric [nodeIndex, slot] pairs: edges that point
 // backwards (or to self) in `indexById` are marked feedback — everything
 // else is acyclic by construction — and the result is sorted into
-// EngineGraph's canonical edge order. Shared by compileGraph and
-// compile.ts's compilePatch for the same reason as buildSuccessors above.
+// EngineGraph's canonical edge order.
 export function shapeEdges<E extends { fromId: string; outSlot: number; toId: string; inSlot: number }>(
   edges: E[],
   indexById: Map<string, number>,
@@ -249,90 +203,4 @@ export function shapeEdges<E extends { fromId: string; outSlot: number; toId: st
       (a, b) =>
         a.from[0] - b.from[0] || a.from[1] - b.from[1] || a.to[0] - b.to[0] || a.to[1] - b.to[1],
     );
-}
-
-export function compileGraph(
-  doc: PatchDraftDoc,
-  moduleById: Map<string, Module>,
-  registry: Map<string, ModuleDSP>,
-): { graph: EngineGraph; warnings: CompileWarning[] } {
-  const warnings: CompileWarning[] = [];
-
-  // Instance order is sorted by instanceId up front so classification,
-  // ordering ties, and warning order are independent of doc array order.
-  const instances = [...doc.modules].sort((a, b) =>
-    compareId(a.instanceId, b.instanceId),
-  );
-
-  const resolved = new Map<string, Resolved>();
-  for (const inst of instances) {
-    const module = moduleById.get(inst.moduleId);
-    if (!module) {
-      warnings.push({ kind: "unknown-module", instanceId: inst.instanceId });
-      continue;
-    }
-    const label = inst.label !== "" ? inst.label : module.name;
-    if (!module.isSeeded) {
-      warnings.push({ kind: "custom-module", instanceId: inst.instanceId, label });
-      continue;
-    }
-    const dsp = module.slug === null ? undefined : registry.get(module.slug);
-    if (!dsp) {
-      warnings.push({
-        kind: "unplayable-module",
-        instanceId: inst.instanceId,
-        label,
-        slug: module.slug ?? "",
-      });
-      continue;
-    }
-    resolved.set(inst.instanceId, { instanceId: inst.instanceId, module, dsp });
-  }
-
-  // Resolve connections to (instanceId, slot) endpoints; drop anything that
-  // touches a skipped instance or an unmapped jack.
-  interface ResolvedEdge {
-    fromId: string;
-    outSlot: number;
-    toId: string;
-    inSlot: number;
-  }
-  const resolvedEdges: ResolvedEdge[] = [];
-  for (const conn of doc.connections) {
-    const from = resolved.get(conn.fromInstanceId);
-    const to = resolved.get(conn.toInstanceId);
-    if (!from || !to) continue;
-    const fromJack = from.module.jacks.find((j) => j.id === conn.fromJackId);
-    const toJack = to.module.jacks.find((j) => j.id === conn.toJackId);
-    if (fromJack?.direction !== "out" || toJack?.direction !== "in") continue;
-    const outSlot = from.dsp.outJacks.indexOf(fromJack.name);
-    const inSlot = to.dsp.inJacks.indexOf(toJack.name);
-    if (outSlot === -1 || inSlot === -1) continue;
-    resolvedEdges.push({ fromId: from.instanceId, outSlot, toId: to.instanceId, inSlot });
-  }
-
-  const ids = [...resolved.keys()]; // already sorted via `instances`
-  const successors = buildSuccessors(ids, resolvedEdges);
-  const order = computeProcessingOrder(ids, successors);
-
-  const indexById = new Map(order.map((id, i) => [id, i]));
-  const instanceById = new Map(instances.map((m) => [m.instanceId, m]));
-  const nodes: EngineNode[] = order.map((id) => {
-    const r = resolved.get(id) as Resolved;
-    const inst = instanceById.get(id);
-    return {
-      instanceId: id,
-      slug: r.dsp.slug,
-      params: paramsFor(r.dsp, r.module, inst?.controlValues ?? {}),
-    };
-  });
-
-  const edges: EngineEdge[] = shapeEdges(resolvedEdges, indexById);
-
-  const outputNodes = order
-    .map((id, i) => ((resolved.get(id) as Resolved).dsp.audioOutput ? i : -1))
-    .filter((i) => i !== -1);
-  if (outputNodes.length === 0) warnings.push({ kind: "no-audio-output" });
-
-  return { graph: { nodes, edges, outputNodes }, warnings };
 }

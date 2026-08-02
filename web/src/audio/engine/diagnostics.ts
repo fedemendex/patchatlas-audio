@@ -1,5 +1,6 @@
-// Structured diagnostics for the generic compiler (compile.ts) — the
-// name-addressed counterpart to compileGraph's silent CompileWarning drops.
+// Structured diagnostics for the generic compiler (compile.ts): every module,
+// jack, or connection compilePatch has to drop gets a machine-readable
+// Diagnostic instead of vanishing silently.
 // validate() and compilePatch() share resolvePatch() below so a Patch is
 // resolved against a registry exactly once; validate() just discards the
 // graph-shaping pieces (resolved node/edge maps) and returns the diagnostics.
@@ -19,6 +20,7 @@ export type DiagnosticCode =
   | "unknown-module-type"
   | "unknown-jack"
   | "unknown-param"
+  | "invalid-param-value"
   | "duplicate-module-id"
   | "connection-to-missing-module"
   | "jack-direction-mismatch"
@@ -51,8 +53,8 @@ export interface ResolvedEdge {
 export interface Resolution {
   diagnostics: Diagnostic[];
   loaded: boolean;
-  // Sorted by compareId — mirrors compileGraph's "instances sorted up front"
-  // so node/warning order never depends on the caller's array order.
+  // Sorted by compareId up front so node/diagnostic order never depends on
+  // the caller's array order.
   ids: string[];
   resolved: Map<string, ResolvedModule>;
   edges: ResolvedEdge[];
@@ -79,9 +81,8 @@ export function resolvePatch(patch: Patch, definitions: Map<string, ModuleDSP>):
     [...byId.entries()].filter(([, list]) => list.length > 1).map(([id]) => id),
   );
 
-  // Modules sorted by id up front, matching graph.ts's compileGraph — module
-  // resolution order, and therefore diagnostic order, is independent of
-  // patch.modules' array order.
+  // Modules sorted by id up front — module resolution order, and therefore
+  // diagnostic order, is independent of patch.modules' array order.
   const modules = [...patch.modules].sort((a, b) => compareId(a.id, b.id));
   const resolved = new Map<string, ResolvedModule>();
 
@@ -118,11 +119,26 @@ export function resolvePatch(patch: Patch, definitions: Map<string, ModuleDSP>):
           moduleId: m.id,
           param: key,
         });
+      } else if (!Number.isFinite(provided[key])) {
+        diagnostics.push({
+          code: "invalid-param-value",
+          severity: "warning",
+          dropped: true,
+          message: `module "${m.id}" has a non-finite value for param "${key}"; using the default`,
+          moduleId: m.id,
+          param: key,
+        });
       }
     }
+    // Engine units are the caller's responsibility (patch.ts), but a Patch
+    // is a public entry point (compilePatch has no PatchAtlas-side validation
+    // in front of it) — clamp to the spec's declared range the same way the
+    // curve math (params.ts) already guarantees for every normalized input.
     const params = Object.keys(dsp.params).map((name) => {
+      const spec = dsp.params[name];
       const raw = provided[name];
-      return raw !== undefined && Number.isFinite(raw) ? raw : dsp.params[name].default;
+      if (raw === undefined || !Number.isFinite(raw)) return spec.default;
+      return Math.min(spec.max, Math.max(spec.min, raw));
     });
     resolved.set(m.id, { id: m.id, dsp, params });
   }
@@ -163,6 +179,12 @@ export function resolvePatch(patch: Patch, definitions: Map<string, ModuleDSP>):
       });
       continue;
     }
+    // Both endpoints are checked independently — not short-circuited after
+    // the first failure — so a connection that's backwards on both ends
+    // (a plausible copy/paste mistake for a hand-written Patch) surfaces a
+    // diagnostic for each side instead of only the `from` one. The edge is
+    // dropped either way, so this only ever adds diagnostics, never changes
+    // which connections make it into the graph.
     const outSlot = from.dsp.outJacks.indexOf(fromJack);
     if (outSlot === -1) {
       const isDirectionMismatch = from.dsp.inJacks.includes(fromJack);
@@ -177,7 +199,6 @@ export function resolvePatch(patch: Patch, definitions: Map<string, ModuleDSP>):
         jack: fromJack,
         connection: connectionRef(conn),
       });
-      continue;
     }
     const inSlot = to.dsp.inJacks.indexOf(toJack);
     if (inSlot === -1) {
@@ -193,8 +214,8 @@ export function resolvePatch(patch: Patch, definitions: Map<string, ModuleDSP>):
         jack: toJack,
         connection: connectionRef(conn),
       });
-      continue;
     }
+    if (outSlot === -1 || inSlot === -1) continue;
     edges.push({ fromId, outSlot, toId, inSlot });
   }
 

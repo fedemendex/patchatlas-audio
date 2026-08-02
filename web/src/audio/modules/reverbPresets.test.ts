@@ -2,7 +2,8 @@
 
 import { describe, it, expect } from "vitest";
 import type { Module, ModuleControl } from "../../lib/api";
-import { compileGraph } from "../engine/graph";
+import { compilePatch } from "../engine/compile";
+import { toPatch } from "../patchAdapter";
 import { normalizedToEngineValue } from "../engine/params";
 import type { PatchDraftDoc } from "../../patches/draft/patchDraft";
 import { commitControls } from "../../patches/draft/patchDraft";
@@ -98,7 +99,7 @@ describe("reverbPresetCommitEntries", () => {
     expect(byId.get("ctl-preset")).toBe(preset);
 
     // Each knob's stored (normalized) value must map back to the preset's
-    // engine-unit value through the same curve compileGraph applies.
+    // engine-unit value through the same curve the adapter applies.
     const specs = registry.get("reverb")!.params;
     const expected = REVERB_PRESET_VISIBLE[preset];
     expect(byId.size).toBe(6);
@@ -161,9 +162,10 @@ describe("preset changes reach the audio engine", () => {
   it("compiles hall params after committing the hall preset batch", () => {
     const entries = reverbPresetCommitEntries(mod, "ctl-preset", 1)!;
     const s = commitControls(draftStateWithReverb(), "inst-reverb", entries);
-    const { graph, warnings } = compileGraph(s.doc, new Map([[mod.id, mod]]), registry);
+    const { patch } = toPatch(s.doc, new Map([[mod.id, mod]]), registry);
+    const { graph, diagnostics } = compilePatch(patch, registry);
 
-    expect(warnings).toEqual([{ kind: "no-audio-output" }]);
+    expect(diagnostics.map((d) => d.code)).toEqual(["no-audio-output"]);
     expect(graph.nodes).toHaveLength(1);
     const hall = REVERB_PRESET_VISIBLE[1];
     // Param slot order = registry declaration order: Preset, PreDelay, Size, Decay, Damp, Mix.
@@ -177,11 +179,8 @@ describe("preset changes reach the audio engine", () => {
   });
 
   it("compiles room defaults when no control values are stored", () => {
-    const { graph } = compileGraph(
-      draftStateWithReverb().doc,
-      new Map([[mod.id, mod]]),
-      registry,
-    );
+    const { patch } = toPatch(draftStateWithReverb().doc, new Map([[mod.id, mod]]), registry);
+    const { graph } = compilePatch(patch, registry);
     const room = REVERB_PRESET_VISIBLE[0];
     const [preset, preDelay, size, decay, damp, mix] = graph.nodes[0].params;
     expect(preset).toBe(0);

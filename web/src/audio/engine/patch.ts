@@ -10,8 +10,8 @@
 //
 // Params are ENGINE units, not the normalized 0..1 the UI stores — see
 // docs/audio/extraction-plan.md §4. An omitted param and a present one must
-// land in the same unit system, which compileGraph's normalized path does
-// not guarantee today.
+// land in the same unit system, which the adapter's (patchAdapter.ts)
+// normalized-input path does not guarantee on its own.
 
 export interface PatchModule {
   id: string; // caller-chosen, unique within the patch

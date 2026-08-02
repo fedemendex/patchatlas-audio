@@ -2,10 +2,11 @@
 //
 // Control values are stored normalized: knobs/sliders as a 0..1 position,
 // switches ("positions") as the raw position index, and step buttons as the
-// 0/1 the linear curve reduces to. compileGraph turns those into engine units;
-// the ModulePanel UI turns a ParamSpec.default into the knob's rest position so
-// an untouched control is DRAWN where the engine actually RUNS it. Both sides
-// go through here so the curve math is never duplicated (or allowed to drift).
+// 0/1 the linear curve reduces to. The adapter (patchAdapter.ts) turns those
+// into engine units; the ModulePanel UI turns a ParamSpec.default into the
+// knob's rest position so an untouched control is DRAWN where the engine
+// actually RUNS it. Both sides go through here so the curve math is never
+// duplicated (or allowed to drift).
 
 import type { ParamSpec } from "./kernel";
 
@@ -14,7 +15,7 @@ const clamp01 = (x: number): number => Math.min(1, Math.max(0, x));
 // Normalized (stored) value → engine units. For linear/exponential the input
 // is a 0..1 knob position (clamped); for "positions" it is the switch index,
 // which already equals the engine value (rounded, clamped to [min, max]) — this
-// mirrors the mapping compileGraph has always applied. A non-finite input falls
+// mirrors the mapping the adapter has always applied. A non-finite input falls
 // back to the spec default.
 export function normalizedToEngineValue(spec: ParamSpec, normalized: number): number {
   if (!Number.isFinite(normalized)) return spec.default;
@@ -51,7 +52,7 @@ export function engineValueToNormalized(spec: ParamSpec, value: number): number 
 
 // The normalized rest position for an untouched control — where the knob is
 // drawn when no value is stored, so its picture matches the ParamSpec.default
-// compileGraph uses. Bipolar knobs (default 0) land at 0.5 (centre) naturally.
+// the adapter uses. Bipolar knobs (default 0) land at 0.5 (centre) naturally.
 export function defaultNormalizedValue(spec: ParamSpec): number {
   return engineValueToNormalized(spec, spec.default);
 }

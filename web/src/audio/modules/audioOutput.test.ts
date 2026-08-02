@@ -6,12 +6,10 @@ import { audioOutputKernel } from "./audioOutput";
 import { registry, isPlayable } from "./registry";
 import { Interpreter } from "../engine/interpreter";
 import { testRegistry } from "../engine/testKernels";
-import { compileGraph } from "../engine/graph";
+import { compilePatch } from "../engine/compile";
 import { AUDIO_NORM, BLOCK_FRAMES } from "../engine/units";
 import type { EngineGraph } from "../engine/graph";
 import type { ModuleDSP } from "./registry";
-import type { Module, ModuleJack, ModuleControl } from "../../lib/api";
-import type { PatchDraftDoc } from "../../patches/draft/patchDraft";
 
 const SR = 48000;
 
@@ -388,86 +386,28 @@ describe("readOutput integration", () => {
 // ── 8. no-audio-output behavior ───────────────────────────────────────────────
 
 describe("no-audio-output behavior", () => {
-  // Minimal catalog helpers mirroring graph.test.ts fixtures.
-  function jack(id: string, name: string, direction: "in" | "out", index: number): ModuleJack {
-    return { id, name, direction, index, group: null, groupIndex: null };
-  }
-  function knob(id: string, name: string, index: number): ModuleControl {
-    return {
-      id, name, kind: "knob", index, bipolar: false,
-      group: "", groupIndex: null, positions: null,
-    };
-  }
-  function catalogMod(overrides: {
-    id: string; name: string; slug: string | null;
-    isSeeded?: boolean; jacks?: ModuleJack[]; controls?: ModuleControl[];
-  }): Module {
-    return {
-      id: overrides.id, name: overrides.name, manufacturerName: null,
-      isSeeded: overrides.isSeeded ?? true, version: "1", hpWidth: null,
-      description: null, slug: overrides.slug, gridRows: null, gridColumns: null,
-      types: [], jacks: overrides.jacks ?? [], controls: overrides.controls ?? [],
-      createdBy: null, createdAt: "", updatedAt: "",
-    };
-  }
-
-  const sineModule = catalogMod({
-    id: "mod-sine", name: "Toy Sine", slug: "toy-sine",
-    jacks: [jack("j-out", "Out", "out", 0)],
-    controls: [knob("c-freq", "Freq", 0)],
-  });
-
-  const audioOutputModule = catalogMod({
-    id: "mod-ao", name: "Audio Output", slug: "audio-output",
-    jacks: [
-      jack("j-lin", "L In", "in", 0),
-      jack("j-rin", "R In", "in", 1),
-    ],
-    controls: [knob("c-level", "Level", 0)],
-  });
-
-  function patchDoc(modules: PatchDraftDoc["modules"]): PatchDraftDoc {
-    return {
-      meta: { title: "", notes: "", visibility: "private", tags: [] },
-      modules,
-      connections: [],
-    };
-  }
-
-  it("patch without audio-output emits no-audio-output and outputNodes is empty", () => {
-    const doc = patchDoc([
-      {
-        instanceId: "i-sine", moduleId: "mod-sine", label: "",
-        positionX: 0, positionY: 0, controlValues: {},
-      },
-    ]);
+  it("patch without audio-output emits a no-audio-output diagnostic and outputNodes is empty", () => {
     // testRegistry has toy-sine but no audio-output entry.
-    const { graph, warnings } = compileGraph(
-      doc,
-      new Map([[sineModule.id, sineModule]]),
+    const { graph, diagnostics } = compilePatch(
+      { modules: [{ id: "i-sine", type: "toy-sine" }], connections: [] },
       testRegistry,
     );
-    expect(warnings.some((w) => w.kind === "no-audio-output")).toBe(true);
+    expect(diagnostics.some((d) => d.code === "no-audio-output")).toBe(true);
     expect(graph.outputNodes).toHaveLength(0);
   });
 
-  it("patch with audio-output surviving does not emit no-audio-output", () => {
-    const doc = patchDoc([
+  it("patch with audio-output surviving does not emit a no-audio-output diagnostic", () => {
+    const { graph, diagnostics } = compilePatch(
       {
-        instanceId: "i-sine", moduleId: "mod-sine", label: "",
-        positionX: 0, positionY: 0, controlValues: {},
+        modules: [
+          { id: "i-sine", type: "toy-sine" },
+          { id: "i-ao", type: "audio-output" },
+        ],
+        connections: [],
       },
-      {
-        instanceId: "i-ao", moduleId: "mod-ao", label: "",
-        positionX: 0, positionY: 0, controlValues: {},
-      },
-    ]);
-    const { graph, warnings } = compileGraph(
-      doc,
-      new Map([[sineModule.id, sineModule], [audioOutputModule.id, audioOutputModule]]),
       mixedRegistry,
     );
-    expect(warnings.some((w) => w.kind === "no-audio-output")).toBe(false);
+    expect(diagnostics.some((d) => d.code === "no-audio-output")).toBe(false);
     expect(graph.outputNodes).toHaveLength(1);
   });
 });

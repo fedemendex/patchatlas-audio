@@ -1,14 +1,13 @@
-// compilePatch: the generic, name-addressed counterpart to compileGraph
-// (graph.ts) — a Patch (patch.ts) in, the same EngineGraph the interpreter
-// already consumes out, plus structured Diagnostics (diagnostics.ts) instead
-// of compileGraph's silent drops.
+// compilePatch: the engine's standalone compiler — a Patch (patch.ts) in, the
+// EngineGraph the interpreter consumes out, plus structured Diagnostics
+// (diagnostics.ts) for anything dropped along the way. PatchAtlas is the only
+// caller today, via the adapter (patchAdapter.ts) that turns its
+// database-backed PatchDraftDoc into a Patch first (#284); the point of this
+// module is that it needs no PatchAtlas types to do its job.
 //
 // Node/edge ordering reuses graph.ts's buildSuccessors, computeProcessingOrder
 // and shapeEdges verbatim (SCC condensation, Kahn topo-sort, DFS-preorder
-// feedback marking, canonical edge sort) so the two compilers can never
-// disagree about processing order — that determinism is load-bearing for the
-// one-block feedback model and must not be forked. Sorts by the caller's
-// `id` where compileGraph sorts by `instanceId`.
+// feedback marking, canonical edge sort). Sorts by the caller's `id`.
 
 import type { EngineGraph, EngineNode } from "./graph";
 import { buildSuccessors, computeProcessingOrder, shapeEdges } from "./graph";
