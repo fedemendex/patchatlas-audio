@@ -2,7 +2,7 @@
 
 This is the canonical reference for the virtual-voltage convention used by every kernel in
 the audio preview engine. All numbers are normative. Kernels must import constants from
-`web/src/audio/engine/units.ts`; no kernel may hardcode tuning or gate constants.
+`packages/audio/src/engine/units.ts`; no kernel may hardcode tuning or gate constants.
 
 ## Signal types
 

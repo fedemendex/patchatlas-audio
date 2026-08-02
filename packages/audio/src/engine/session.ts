@@ -8,9 +8,12 @@
 // engine must never touch context.destination or call close()/suspend() on a
 // context it did not create; several engines may share one context.
 //
-// `workletUrl` mechanism per #285: the prebuilt dist/worklet.js asset doesn't
-// exist until #287, so the default stays today's Vite import. #287 swaps the
-// default; the `workletUrl` option already exists so nothing here changes then.
+// `workletUrl` default (#287): resolved relative to this module's own URL,
+// not a bundler-specific import. tsdown bundles src/index.ts into one
+// dist/index.js file, so at runtime `import.meta.url` here is dist/index.js's
+// own URL regardless of where this source line originated — "./worklet.js"
+// therefore always resolves to dist/worklet.js, the package's other build
+// entry, matching the "./worklet.js" subpath in package.json's exports map.
 
 import { compilePatch } from "./compile";
 import type { Diagnostic } from "./diagnostics";
@@ -18,7 +21,8 @@ import type { EngineGraph } from "./graph";
 import type { Patch } from "./patch";
 import { registry } from "../modules/registry";
 import type { EngineHostMessage, EngineWorkletMessage } from "../worklet/protocol";
-import defaultWorkletUrl from "../worklet/engine.worklet.ts?worker&url";
+
+const defaultWorkletUrl = new URL("./worklet.js", import.meta.url).href;
 
 export interface EngineOptions {
   workletUrl?: string;

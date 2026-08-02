@@ -64,7 +64,7 @@
 // index — never a name — and uses it to index the hidden per-preset tables
 // below (upstream's bandwidth/diffusion/excursion parameters). The five
 // visible params arrive as ordinary numeric params; the UI batch-sets them
-// when the switch changes (web/src/audio/modules/reverbPresets.ts).
+// when the switch changes (reverbPresets.ts).
 
 import type { Kernel } from "../engine/kernel";
 import { CV_BIPOLAR_MAX } from "../engine/units";

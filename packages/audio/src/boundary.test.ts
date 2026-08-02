@@ -16,7 +16,7 @@ const BOUNDARY_DIRS = ["engine", "modules", "worklet"];
 const AUDIO_ROOT = path.dirname(new URL(import.meta.url).pathname);
 
 export interface SourceFile {
-  /** Path relative to web/src/audio, posix-separated, e.g. "modules/registry.ts". */
+  /** Path relative to packages/audio/src, posix-separated, e.g. "modules/registry.ts". */
   relPath: string;
   content: string;
 }

@@ -7,10 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createEngine } from "./session";
 import type { Patch } from "./patch";
 
-vi.mock("../worklet/engine.worklet.ts?worker&url", () => ({
-  default: "/assets/engine.worklet.js",
-}));
-
 const playablePatch: Patch = {
   modules: [
     { id: "osc", type: "oscillator" },
