@@ -9,7 +9,8 @@ export { createEngine } from "./engine/session";
 export type { Engine, EngineOptions } from "./engine/session";
 export { validate } from "./engine/diagnostics";
 export { compilePatch } from "./engine/compile";
-export type { Patch } from "./engine/patch";
+export type { Patch, PatchModule, PatchConnection } from "./engine/patch";
+export type { EngineGraph } from "./engine/graph";
 export type { Diagnostic } from "./engine/diagnostics";
 export type { ParamSpec } from "./engine/kernel";
 export {

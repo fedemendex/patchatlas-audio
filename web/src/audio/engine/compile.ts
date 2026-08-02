@@ -11,13 +11,13 @@
 
 import type { EngineGraph, EngineNode } from "./graph";
 import { buildSuccessors, computeProcessingOrder, shapeEdges } from "./graph";
-import type { ModuleDSP } from "../modules/registry";
+import type { ModuleDefinition } from "../modules/definitions";
 import { resolvePatch, type Diagnostic } from "./diagnostics";
 import type { Patch } from "./patch";
 
 export function compilePatch(
   patch: Patch,
-  definitions: Map<string, ModuleDSP>,
+  definitions: Map<string, ModuleDefinition>,
 ): { graph: EngineGraph; diagnostics: Diagnostic[]; loaded: boolean } {
   const { diagnostics, loaded, ids, resolved, edges } = resolvePatch(patch, definitions);
 

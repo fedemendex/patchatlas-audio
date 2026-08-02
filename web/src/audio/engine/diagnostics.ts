@@ -12,7 +12,7 @@
 // references) is not safe to guess at, so resolvePatch signals `loaded:
 // false` instead of arbitrarily picking one of the duplicates.
 
-import type { ModuleDSP } from "../modules/registry";
+import type { ModuleDefinition } from "../modules/definitions";
 import { compareId } from "./graph";
 import { clampToSpecRange } from "./params";
 import type { Patch, PatchConnection, PatchModule } from "./patch";
@@ -40,7 +40,7 @@ export interface Diagnostic {
 
 export interface ResolvedModule {
   id: string;
-  dsp: ModuleDSP;
+  dsp: ModuleDefinition;
   params: number[]; // slot order = Object.keys(dsp.params) order
 }
 
@@ -74,7 +74,7 @@ function connectionRef(conn: PatchConnection): { from: [string, string]; to: [st
 function resolveEndpointSlot(
   role: "output" | "input",
   moduleId: string,
-  dsp: ModuleDSP,
+  dsp: ModuleDefinition,
   jackName: string,
   conn: PatchConnection,
   diagnostics: Diagnostic[],
@@ -104,7 +104,7 @@ function resolveEndpointSlot(
 // node/edge data compile.ts needs to shape an EngineGraph. Shared by
 // validate() and compilePatch() so the two can never disagree about what a
 // given Patch means.
-export function resolvePatch(patch: Patch, definitions: Map<string, ModuleDSP>): Resolution {
+export function resolvePatch(patch: Patch, definitions: Map<string, ModuleDefinition>): Resolution {
   const diagnostics: Diagnostic[] = [];
 
   const byId = new Map<string, PatchModule[]>();
@@ -245,6 +245,6 @@ export function resolvePatch(patch: Patch, definitions: Map<string, ModuleDSP>):
 }
 
 // Pure: no audio, no DOM, no browser APIs. Structural validation only.
-export function validate(patch: Patch, definitions: Map<string, ModuleDSP>): Diagnostic[] {
+export function validate(patch: Patch, definitions: Map<string, ModuleDefinition>): Diagnostic[] {
   return resolvePatch(patch, definitions).diagnostics;
 }
