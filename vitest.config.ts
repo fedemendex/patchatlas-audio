@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 // Node environment, no globals (#287, docs/audio/extraction-plan.md §7): this
 // is what enforces the package's "zero browser dependencies" claim at test
@@ -8,5 +8,9 @@ export default defineConfig({
   test: {
     environment: "node",
     globals: false,
+    // examples/playground is its own npm workspace with its own vitest.config.ts
+    // and test script (npm run test --workspace=examples/playground); the root
+    // package's `npm test` must stay scoped to this package's own src/.
+    exclude: [...configDefaults.exclude, "examples/**"],
   },
 });

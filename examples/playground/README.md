@@ -1,6 +1,6 @@
 # patchatlas-audio playground
 
-A small, framework-free demo of [`patchatlas-audio`](../../packages/audio)'s public API. Every
+A small, framework-free demo of [`patchatlas-audio`](../..)'s public API. Every
 import in `src/` resolves to the bare `"patchatlas-audio"` specifier (enforced by
 `src/boundary.test.ts`) and the build consumes only the package's built `dist`, never its
 TypeScript sources.
@@ -12,8 +12,8 @@ npm run build --workspace=examples/playground
 npm run serve --workspace=examples/playground   # http://127.0.0.1:4174
 ```
 
-`npm run build` requires `packages/audio/dist` to exist first (`npm run build
---workspace=packages/audio`).
+`npm run build --workspace=examples/playground` requires `patchatlas-audio`'s own `dist` to
+exist first — run `npm run build` from the repo root before building the playground.
 
 **Requires a real HTTP(S) origin — `dist/index.html` will not work if opened directly via a
 `file://` URL.** This isn't a bug in the build: Chromium (and other browsers) refuse to fetch

@@ -15,6 +15,9 @@
     "dist",
     "docs"
   ],
+  "workspaces": [
+    "examples/playground"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

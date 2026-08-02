@@ -11,7 +11,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "patchatlas-audio": "*"
+    "patchatlas-audio": "file:../.."
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
