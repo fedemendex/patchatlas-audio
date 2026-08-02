@@ -8,7 +8,7 @@ route however you like.
 It ships 26 module kernels (oscillators, filters, envelopes, sequencers, a reverb, logic,
 sample & hold, and more) as pure, allocation-free TypeScript — no native Web Audio node graph
 under the hood, and no framework dependency. See
-[`examples/playground`](../../examples/playground) for a runnable demo built entirely on the
+[`examples/playground`](examples/playground) for a runnable demo built entirely on the
 public API described here, and [`docs/architecture.md`](docs/architecture.md) for how the
 compile → interpret → worklet pipeline fits together.
 
@@ -16,8 +16,8 @@ compile → interpret → worklet pipeline fits together.
   <img src="docs/assets/playground-screenshot.png" alt="patchatlas-audio playground running the Krell preset: transport controls, an oscilloscope showing a live waveform, per-module parameter controls, and a clean diagnostics panel" width="640" />
 </p>
 
-**Demo:** the screenshot above is `examples/playground` running the Krell preset locally. A
-live, hosted link will go here once it's deployed (#289).
+**Demo:** the screenshot above is `examples/playground` running the Krell preset locally. Try it
+live at **https://fedemendex.github.io/patchatlas-audio/**.
 
 ## Install
 

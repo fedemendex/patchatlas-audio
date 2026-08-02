@@ -5,6 +5,8 @@ import in `src/` resolves to the bare `"patchatlas-audio"` specifier (enforced b
 `src/boundary.test.ts`) and the build consumes only the package's built `dist`, never its
 TypeScript sources.
 
+**Live demo:** https://fedemendex.github.io/patchatlas-audio/
+
 ## Run it
 
 ```sh
