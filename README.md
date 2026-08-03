@@ -118,12 +118,18 @@ Whatever URL you pass must point at an unmodified copy of the package's own
 `dist/worklet.js` — it is a single, fully self-contained bundle (no `import` statements,
 verified at build time) that calls `registerProcessor` for you.
 
-## Limitations
+## Extending the engine
 
-Third-party kernels are out of scope for v1 — there is no `registerKernel` or equivalent
-plugin API. The 26 built-in kernels are documented per-module by `getModuleDefinitions()`,
-including an optional `limitations` field for jacks/params that are visible but not (yet)
-audible in this engine.
+The engine ships with a registry of built-in kernels.
+
+Contributors can add a new built-in kernel by implementing the internal
+`Kernel<S>` contract, registering it in `src/modules/registry.ts`, and adding
+the required DSP and registry tests. See
+[`docs/adding-a-kernel.md`](docs/adding-a-kernel.md).
+
+Package consumers cannot register third-party kernels at runtime.
+`Kernel<S>`, `ModuleDSP`, and the registry are internal and are not exported as
+part of the public API.
 
 ## More
 
