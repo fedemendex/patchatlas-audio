@@ -1,10 +1,10 @@
-// Kernel-free public projection of the registry (#286,
-// docs/audio/extraction-plan.md §2). ModuleDefinition is what the package
-// commits to supporting for a standalone consumer: jack/param shape, not the
+// Kernel-free public projection of the registry. ModuleDefinition is what the
+// package commits to supporting for a consumer: jack/param shape, not the
 // kernel implementation. It intentionally omits ModuleDSP.kernel and carries
-// no PatchAtlas panel metadata (hp, types, group, groupIndex, kind, explicit
-// bipolar hints — those stay in the seed; `bipolar` is derivable from a
-// ParamSpec via the public isBipolarParam helper).
+// no host panel metadata (hp, types, group, groupIndex, kind, explicit
+// bipolar hints — those belong to whatever catalog the host maintains;
+// `bipolar` is derivable from a ParamSpec via the public isBipolarParam
+// helper).
 
 import type { ParamSpec } from "../engine/kernel";
 import { isPlayable, registry, type ModuleDSP } from "./registry";
@@ -34,8 +34,8 @@ function toDefinition(dsp: ModuleDSP): ModuleDefinition {
 
 // Computed once, lazily, and cached: `registry` is a static Map populated at
 // module-load time and never mutated afterward in production, so re-deriving
-// this projection on every call (e.g. every ModulePanel render) would be pure
-// waste. Safe under test mocks too — a mocked "./registry" module resolves
+// this projection on every call (e.g. every panel render in a host UI) would
+// be pure waste. Safe under test mocks too — a mocked "./registry" resolves
 // before this module's first call, so the cache still reflects it.
 let definitionsCache: ModuleDefinition[] | null = null;
 let definitionsBySlug: Map<string, ModuleDefinition> | null = null;

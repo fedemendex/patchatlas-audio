@@ -1,11 +1,11 @@
 // Bundled example patches, plain JSON in the package's generic `Patch`
 // schema (patchatlas-audio's engine/patch.ts) -- so this file doubles as
 // schema documentation for anyone reading the playground source. Every
-// param value is already in ENGINE units, not the 0..1 normalized form
-// PatchAtlas stores; see docs/signals.md in the package for the convention.
+// param value is already in ENGINE units, not the 0..1 normalized form a host
+// UI typically stores; see docs/signals.md in the package for the convention.
 //
-// "krell" is adapted from web/src/patches/seed/krellPatch.ts (a PatchDraftDoc,
-// PatchAtlas's own storage shape) -- its normalized control values were
+// "krell" is adapted from a patch authored in PatchAtlas (a downstream
+// consumer, whose storage shape is normalized) -- its control values were
 // converted to engine units once, offline, via the package's own
 // normalizedToEngineValue(spec, normalized) against the real registry specs,
 // then hand-verified with compilePatch() (loaded: true, zero diagnostics)

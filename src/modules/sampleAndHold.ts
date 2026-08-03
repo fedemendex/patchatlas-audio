@@ -43,7 +43,7 @@
 // Slew back up always starts gliding from the current output, never a stale
 // value.
 //
-// Jack/param layout (seed declaration order):
+// Jack/param layout (registry declaration order):
 //   ins[0] = In   ins[1] = Trig
 //   outs[0] = S&H   outs[1] = T&H
 //   params[0] = Slew (raw 0..1 knob value, mapped in-kernel — see above)

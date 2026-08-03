@@ -167,8 +167,8 @@ export function resolvePatch(patch: Patch, definitions: Map<string, ModuleDefini
       }
     }
     // Engine units are the caller's responsibility (patch.ts), but a Patch
-    // is a public entry point (compilePatch has no PatchAtlas-side validation
-    // in front of it) — clamp to the spec's declared range via the same
+    // is a public entry point with no host-side validation guaranteed in
+    // front of it — clamp to the spec's declared range via the same
     // clampToSpecRange the curve math (params.ts) uses for every normalized
     // input, so the two Patch-authoring paths can't drift on clamp semantics.
     const params = Object.keys(dsp.params).map((name) => {

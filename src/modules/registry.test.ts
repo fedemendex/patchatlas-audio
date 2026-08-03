@@ -27,10 +27,11 @@ import { logicKernel } from "./logic";
 import { slewLimiterKernel } from "./slewLimiter";
 import { comparatorKernel } from "./comparator";
 
-// Seed-integrity checking moved out to web/src/audio/seedConformance.test.ts
-// (#286): the package itself must not read a PatchAtlas asset, so this file
-// only asserts the registry's own internal shape (kernel bindings, defaults,
-// limitations metadata) — never the seed.
+// The registry is the package's own source of truth for its module
+// vocabulary, and the package must not read a downstream host's catalog, so
+// this file asserts the registry's internal shape only (kernel bindings,
+// defaults, limitations metadata). Conformance in the other direction — a
+// host's catalog matching getModuleDefinitions() — is that host's test to own.
 
 describe("production registry", () => {
   it("has exactly the twenty-six registered entries (size 26)", () => {

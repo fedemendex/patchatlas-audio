@@ -1,7 +1,7 @@
 // A minimal canvas oscilloscope over a host-owned AnalyserNode -- the
-// playground creates and connects the analyser (extraction-plan.md §5:
-// routing, including analysers, is host territory, never the engine's), this
-// module only draws what it reports. No charting dependency.
+// playground creates and connects the analyser (routing, including analysers,
+// is host territory, never the engine's), this module only draws what it
+// reports. No charting dependency.
 
 export function startScope(canvas: HTMLCanvasElement, analyser: AnalyserNode): () => void {
   const ctx = canvas.getContext("2d");

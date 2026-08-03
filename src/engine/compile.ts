@@ -1,9 +1,8 @@
-// compilePatch: the engine's standalone compiler — a Patch (patch.ts) in, the
+// compilePatch: the engine's compiler — a Patch (patch.ts) in, the
 // EngineGraph the interpreter consumes out, plus structured Diagnostics
-// (diagnostics.ts) for anything dropped along the way. PatchAtlas is the only
-// caller today, via the adapter (patchAdapter.ts) that turns its
-// database-backed PatchDraftDoc into a Patch first (#284); the point of this
-// module is that it needs no PatchAtlas types to do its job.
+// (diagnostics.ts) for anything dropped along the way. Public: exported from
+// src/index.ts, so a host that keeps patches in its own storage format only
+// has to produce a Patch; no host types reach this module.
 //
 // Node/edge ordering reuses graph.ts's buildSuccessors, computeProcessingOrder
 // and shapeEdges verbatim (SCC condensation, Kahn topo-sort, DFS-preorder

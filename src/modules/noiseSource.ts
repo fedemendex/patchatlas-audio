@@ -1,8 +1,7 @@
 // Noise source kernel for slug "noise-source".
 //
-// The seed's four outputs are White, Pink, Red, Blue. All four are
-// implemented: White and Pink shipped in AP-11; Red and Blue (this
-// follow-up) are preview-quality colorings, not lab-grade spectral models.
+// Four outputs: White, Pink, Red, Blue. All four are implemented; Red and
+// Blue are approximate colorings, not lab-grade spectral models.
 //
 // White: a uniform draw in [-CV_BIPOLAR_MAX, +CV_BIPOLAR_MAX) per sample.
 // Expected RMS for a uniform ±a signal is a/√3, i.e. ≈ 2.886 V here.
@@ -10,8 +9,8 @@
 // Pink: Paul Kellet's "economy" pinking filter — three one-pole lowpass
 // branches at different corner frequencies plus the raw white sample,
 // summed with fixed gains (http://www.firstpr.com.au/dsp/pink-noise/). This
-// is the "one-pole-sum" approximation named in the roadmap issue: a rough
-// −3 dB/oct trend over the audible range, not exact 1/f noise.
+// is a "one-pole-sum" approximation: a rough −3 dB/oct trend over the
+// audible range, not exact 1/f noise.
 //
 // The raw Kellet sum is not itself scaled to a unit range (its stationary
 // RMS runs well above the white input's), so PINK_GAIN_COMPENSATION brings
@@ -52,15 +51,12 @@
 // used or reached — it never is, since xorshift32 is a bijection on the
 // nonzero states).
 //
-// Deferred: "noise-random" (a second seeded noise slug with Clk/Rate CV
-// inputs and White/Pink/Rand CV/Rand Gate outputs) is NOT registered here.
-// noise-source is the canonical playable noise slug for AP-11: its seed
-// entry is a clean no-input/no-control noise source, while noise-random's
-// seed entry has a malformed `outputs` array (plain strings instead of
-// `{name, group}` objects — inconsistent with every other seeded module)
-// and overlaps with sample-and-hold/clock functionality out of scope here.
+// Scope: "noise-source" is the package's only noise module — a clean
+// no-input/no-control source. A clocked random-voltage module (Clk/Rate CV in,
+// Rand CV/Rand Gate out) is deliberately not registered: it overlaps with
+// sample-and-hold plus clock, which already compose into the same behaviour.
 //
-// Jack/param layout (seed declaration order):
+// Jack/param layout (registry declaration order):
 //   ins: none
 //   outs[0] = White  outs[1] = Pink  outs[2] = Red  outs[3] = Blue
 //   params: none

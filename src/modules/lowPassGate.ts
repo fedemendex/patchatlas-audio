@@ -3,7 +3,7 @@
 // Patch Atlas's generic educational preview semantics — not a clone of, or a
 // claim to match, any specific hardware LPG convention. Models a
 // vactrol-driven coupled VCA + 2-pole lowpass, selectable via
-// the seeded Mode switch (positions VCA / LPG / Both). "Gate" (amplitude
+// the Mode switch (positions VCA / LPG / Both). "Gate" (amplitude
 // control) is part of every mode except plain VCA-only, since a low-pass
 // *gate* is defined by combining filtering with amplitude control — a
 // filter-only mode would not gate anything and would leak sustained/DC
@@ -19,7 +19,7 @@
 //          (half the signal skips the lowpass) but darker/gated compared to
 //          VCA-only. Closed is silent (amp gates both halves of the blend).
 //
-// Jack/param layout (seed declaration order):
+// Jack/param layout (registry declaration order):
 //   ins[0] = In   ins[1] = CV   ins[2] = Strike
 //   outs[0] = Out
 //   params[0] = Mode (0 = VCA, 1 = LPG, 2 = Both; "positions" curve)
@@ -34,7 +34,7 @@
 //   - On every other sample, level chases cvOpen: an instant rise if cvOpen >
 //     level (jumps exactly to the target, never past it — no overshoot),
 //     otherwise an exponential decay at a fixed DECAY_TIME_S time constant.
-//     There is no seeded Damp/Decay/Response control on this module to
+//     There is no Damp/Decay/Response control on this module to
 //     modulate the decay time, so it is fixed rather than knob-mapped.
 //   - level is hard-clamped to [0, 1] every sample.
 //
@@ -65,7 +65,7 @@ const LPG_CUTOFF_MIN_HZ = 40;
 const LPG_CUTOFF_RANGE_HZ = 3960;
 const DECAY_TIME_S = 0.3;
 
-// Mode switch positions (seed order): VCA, LPG, Both.
+// Mode switch positions (registry order): VCA, LPG, Both.
 const MODE_VCA = 0;
 const MODE_LPG = 1;
 const MODE_BOTH = 2;

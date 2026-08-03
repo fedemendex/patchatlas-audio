@@ -12,7 +12,7 @@
 // segment "completes" when it is within SEGMENT_COMPLETE_RATIO (1%) of
 // GATE_HIGH_V of its target.
 //
-// Jack/param layout (seed declaration order):
+// Jack/param layout (registry declaration order):
 //   ins[0] = Gate        — Schmitt-triggered gate; null → low
 //   ins[1] = Retrigger   — Schmitt-triggered; rising edge while gate high
 //                          restarts attack from the current level; null → low

@@ -1,6 +1,7 @@
-// Engine graph shape plus the deterministic ordering machinery shared by both
-// compilers: compilePatch (compile.ts), the generic, name-addressed entry
-// point, and PatchAtlas's adapter (patchAdapter.ts) upstream of it.
+// Engine graph shape plus the deterministic ordering machinery compilePatch
+// (compile.ts) uses to turn a name-addressed Patch into numeric node indices
+// and [nodeIndex, slot] edges. See docs/architecture.md, "Deterministic
+// ordering", for why the order is what it is.
 
 export interface EngineNode {
   instanceId: string;
@@ -32,10 +33,10 @@ export const compareId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 // Iterative Tarjan. `ids` must be sorted and `successors` lists sorted, so
 // component discovery — and therefore everything downstream — is
 // deterministic regardless of input array order. Private: only
-// computeProcessingOrder calls this (no caller elsewhere in the package or
-// in PatchAtlas), and it's covered indirectly through that entry point by
-// graph.test.ts and compile.test.ts's shuffle test — kept unexported rather
-// than growing the module's surface for callers that don't exist.
+// computeProcessingOrder calls this, and it's covered indirectly through that
+// entry point by graph.test.ts and compile.test.ts's shuffle test — kept
+// unexported rather than growing the module's surface for callers that don't
+// exist.
 function stronglyConnectedComponents(
   ids: string[],
   successors: Map<string, string[]>,

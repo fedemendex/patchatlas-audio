@@ -26,7 +26,7 @@
 // genuine discontinuity that PolyBLEP does not correct — a known, documented
 // educational-quality trade-off, not band-limited sync.
 //
-// Jack/param layout (as assigned by the Interpreter, seed order):
+// Jack/param layout (as assigned by the Interpreter, registry order):
 //   ins[0]  = 1V/Oct   ins[1] = FM    ins[2] = EFM   ins[3] = Sync   ins[4] = PWM
 //   outs[0] = Saw   outs[1] = Pulse   outs[2] = Tri   outs[3] = Sine   outs[4] = Sub
 //   params[0] = Tune (oct)  params[1] = Fine (oct)  params[2] = FM Amt

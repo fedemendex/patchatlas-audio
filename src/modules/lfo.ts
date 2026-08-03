@@ -20,7 +20,7 @@
 //   Saw:  2p − 1 (rising ramp, −max at p=0)
 //   Sub:  square on a half-rate phase (one octave down)
 //
-// Jack/param layout (seed declaration order):
+// Jack/param layout (registry declaration order):
 //   ins[0] = Rate CV   ins[1] = Rst
 //   outs[0] = Sine  outs[1] = Tri  outs[2] = Sq  outs[3] = Saw  outs[4] = Sub
 //   params[0] = Rate (Hz)

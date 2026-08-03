@@ -1,15 +1,15 @@
-// Instance-based browser engine runtime (#285). This is the extraction's cut
-// line (docs/audio/extraction-plan.md §5): everything createEngine touches —
-// worklet loading, the AudioWorkletNode, graph compilation/messaging,
-// transport state, step subscriptions — is package-owned and DOM/host
-// agnostic. Everything on the other side of the line stays in PatchAtlas: the
-// host creates and owns the AudioContext (resume/suspend/close) and all
-// routing, including `engine.output.connect(context.destination)`. The
-// engine must never touch context.destination or call close()/suspend() on a
-// context it did not create; several engines may share one context.
+// Instance-based browser engine runtime — the ownership cut line (see
+// docs/architecture.md, "Runtime lifecycle"): everything createEngine touches
+// — worklet loading, the AudioWorkletNode, graph compilation/messaging,
+// transport state, step subscriptions — is package-owned and host agnostic.
+// Everything on the other side belongs to the host: it creates and owns the
+// AudioContext (resume/suspend/close) and all routing, including
+// `engine.output.connect(context.destination)`. The engine must never touch
+// context.destination or call close()/suspend() on a context it did not
+// create; several engines may share one context.
 //
-// `workletUrl` default (#287): resolved relative to this module's own URL,
-// not a bundler-specific import. tsdown bundles src/index.ts into one
+// `workletUrl` default: resolved relative to this module's own URL, not a
+// bundler-specific import. tsdown bundles src/index.ts into one
 // dist/index.js file, so at runtime `import.meta.url` here is dist/index.js's
 // own URL regardless of where this source line originated — "./worklet.js"
 // therefore always resolves to dist/worklet.js, the package's other build

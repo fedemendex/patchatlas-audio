@@ -5,8 +5,8 @@ import { defineConfig } from "tsdown";
 // one dist/main.js. This still consumes only the package's built `dist`
 // (never src) through its public entry point -- tsdown resolves the
 // "patchatlas-audio" specifier via the workspace symlink in node_modules,
-// which points at the real packages/audio directory, whose own package.json
-// `exports` map resolves "." to ./dist/index.js.
+// which points at the repository root, whose own package.json `exports` map
+// resolves "." to ./dist/index.js.
 //
 // The AudioWorklet bundle (dist/worklet.js) is never imported here -- it is
 // copied byte-for-byte alongside dist/main.js by scripts/copy-assets.mjs and

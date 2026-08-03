@@ -6,19 +6,19 @@
 // file → registry → reverb.ts), which is why the hidden tables live in the
 // kernel file.
 //
-// The UI-side expansion (a control-id commit batch keyed off a PatchAtlas
-// catalog Module) is PatchAtlas UI, not kernel knowledge, and lives in
-// web/src/modules/reverbPresetCommit.ts (#286) — it consumes the constants
-// below via the public entry point.
+// Expanding a preset selection into a host's own control values is host UI
+// work, not kernel knowledge — that is why these constants are exported
+// through the public entry point rather than kept private: a host consumes
+// them, the engine only ever sees the position index.
 
 export const REVERB_SLUG = "reverb";
 export const REVERB_PRESET_CONTROL = "Preset";
 
-/** Switch position order — must match the seed `positions` and the registry ParamSpec. */
+/** Switch position order — must match the registry ParamSpec `positions`. */
 export const REVERB_PRESET_POSITIONS = ["Room", "Hall", "Plate"] as const;
 
 /**
- * Visible control values per preset, in ENGINE UNITS, keyed by seed control
+ * Visible control values per preset, in ENGINE UNITS, keyed by control
  * NAME. Index = switch position (0 Room, 1 Hall, 2 Plate). The Room column is
  * also the registry default for each control, so an untouched reverb IS the
  * Room preset (asserted in reverbPresets.test.ts).

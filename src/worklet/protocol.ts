@@ -1,6 +1,7 @@
-// Message protocol between useAudioEngine (main thread) and the engine
-// worklet processor. Types only — this module must stay erasable so neither
-// side pulls runtime code across the boundary.
+// Message protocol between createEngine (main thread, engine/session.ts) and
+// the engine worklet processor. Internal — not exported from src/index.ts.
+// Types only: this module must stay erasable so neither side pulls runtime
+// code across the boundary.
 
 import type { EngineGraph } from "../engine/graph";
 

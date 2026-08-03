@@ -1,9 +1,9 @@
-// The package's public entry point (#286, docs/audio/extraction-plan.md §2,
-// §7). This is the entire surface the package commits to supporting once
-// extracted — everything else under engine/, modules/ and worklet/ is a
-// private implementation detail, free to change without notice. Export the
-// minimum PatchAtlas and the future playground need; nothing here can be
-// removed cheaply once shipped (see audio.publicSurface.test.ts's snapshot).
+// The package's public entry point — the authoritative surface the package
+// commits to supporting. Everything else under engine/, modules/ and
+// worklet/ is a private implementation detail, free to change without notice
+// (docs/architecture.md lists which names are which). Export the minimum a
+// consumer needs; nothing here can be removed cheaply once shipped, which is
+// what publicSurface.test.ts's snapshot is there to make deliberate.
 
 export { createEngine } from "./engine/session";
 export type { Engine, EngineOptions } from "./engine/session";

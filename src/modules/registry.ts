@@ -1,10 +1,17 @@
-// The closed, code-owned DSP registry: seeded slug → kernel binding.
-// Keys are slugs from seed/generic_modules.json; jack and param names are seed NAMES
-// (stable across databases), never DB ids — the compiler (AP-3) resolves ids → names
-// via the catalog Module objects. Integrity against the seed is enforced by
-// web/src/audio/seedConformance.test.ts (PatchAtlas-side, checked against the
-// public getModuleDefinitions() surface); every new kernel must pass
-// packages/audio/docs/kernel-checklist.md.
+// The closed, code-owned DSP registry: slug → kernel binding. This file is
+// the package's source of truth for its module vocabulary — slugs, jack
+// names, param names and specs are defined here and nowhere else. Downstream
+// hosts conform to it (through the public getModuleDefinitions() projection
+// in definitions.ts); it never conforms to them.
+//
+// Internal: neither this Map nor ModuleDSP is exported from src/index.ts, so
+// consumers cannot register kernels at runtime. Adding a built-in kernel is a
+// contributor workflow — see docs/adding-a-kernel.md, and every new kernel
+// must pass docs/kernel-checklist.md.
+//
+// DECLARATION ORDER IS THE WIRE PROTOCOL: inJacks[k] is the kernel's ins[k],
+// outJacks[k] is outs[k], and params' key declaration order is params[k].
+// Reordering an existing entry rewires every compiled graph.
 
 import type { Kernel, ParamSpec } from "../engine/kernel";
 import { GATE_HIGH_V, CV_BIPOLAR_MAX, CV_UNIPOLAR_MAX } from "../engine/units";
@@ -36,11 +43,11 @@ import { slewLimiterKernel } from "./slewLimiter";
 import { comparatorKernel } from "./comparator";
 
 export interface ModuleDSP {
-  slug: string; // must exist in seed/generic_modules.json
+  slug: string; // the module type a Patch addresses; unique across the registry
   kernel: Kernel<unknown>;
-  inJacks: string[]; // seed jack NAMES, order = ins[] slots
-  outJacks: string[]; // seed jack NAMES, order = outs[] slots
-  params: Record<string, ParamSpec>; // seed control NAME → spec; order defines params[] slots
+  inJacks: string[]; // in-jack NAMES, order = ins[] slots
+  outJacks: string[]; // out-jack NAMES, order = outs[] slots
+  params: Record<string, ParamSpec>; // control NAME → spec; key order = params[] slots
 
   // For modules that terminate the graph into DAC-domain output.
   // audio-output has no patchable output jacks, but it produces L/R buffers
@@ -54,25 +61,22 @@ export interface ModuleDSP {
   // worklet forwards it on a throttled channel; it never affects DSP.
   reportsStep?: boolean;
 
-  // Fidelity metadata (AP-13; renamed from `preview` in #286 — "preview" is
-  // PatchAtlas's framing, not the package's). Seed NAMES of jacks/controls
-  // that are visible in the UI but produce no audible effect in this engine,
-  // so a host can badge them and docs/audio/preview-coverage.md can enumerate
-  // them. A module with none of these fields has no limitations. All names
-  // are validated against the seed in web/src/audio/seedConformance.test.ts.
-  // See preview-coverage.md for the taxonomy; the two mechanisms are:
+  // Fidelity metadata for a deliberately partial module: names of jacks or
+  // controls a host's panel shows but this engine does not render audibly, so
+  // the host can badge them. Every currently registered module is complete
+  // and omits this field. Two mechanisms:
   //   - declared-but-unread: the jack/control IS in inJacks/outJacks/params
-  //     (silentOutputs / ignoredInputs / ignoredControls) — a cable/knob resolves
-  //     to a real slot the kernel never reads.
-  //   - deferred (seed-only): the jack/control is in the seed but absent from
-  //     inJacks/outJacks/params (deferredJacks / deferredControls) — the compiler
-  //     drops the connection and the control value is never passed.
+  //     (silentOutputs / ignoredInputs / ignoredControls) — a cable/knob
+  //     resolves to a real slot the kernel never reads.
+  //   - deferred: the jack/control exists in a host's panel but is absent
+  //     from inJacks/outJacks/params (deferredJacks / deferredControls) — the
+  //     compiler drops the connection and the control value is never passed.
   limitations?: {
     silentOutputs?: string[]; // in outJacks; kernel writes silence every block
     ignoredInputs?: string[]; // in inJacks; kernel never reads the slot
     ignoredControls?: string[]; // in params; kernel never reads the slot
-    deferredJacks?: string[]; // seeded jack absent from inJacks/outJacks (dropped)
-    deferredControls?: string[]; // seeded control absent from params (never passed)
+    deferredJacks?: string[]; // host-side jack absent from inJacks/outJacks (dropped)
+    deferredControls?: string[]; // host-side control absent from params (never passed)
   };
 }
 
@@ -222,7 +226,7 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       params: {
         Rise: { min: 0.001, max: 10, default: 0.01, curve: "exponential" },
         Fall: { min: 0.001, max: 10, default: 0.3, curve: "exponential" },
-        // Bipolar (seed `bipolar: true`): −1 log, 0 linear, +1 expo transient
+        // Bipolar (min < 0 < max): −1 log, 0 linear, +1 expo transient
         // shaping (g = 4^curve in the kernel).
         Curve: { min: -1, max: 1, default: 0, curve: "linear" },
         Cycle: { min: 0, max: 1, default: 0, curve: "linear" },
@@ -276,12 +280,12 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       // Fully previewed. Ext Clk slaves the divider to an external clock; when
       // unpatched the internal BPM generator runs (see clock.ts header). Swing is
       // the bipolar offbeat delay on the internal clock.
-      // Slot order matches the seed: Ext Clk, Run, Rst.
+      // Slot order: Ext Clk, Run, Rst.
       inJacks: ["Ext Clk", "Run", "Rst"],
       outJacks: ["Clk", "/2", "/4", "/8", "/16"],
       params: {
         Tempo: { min: 30, max: 300, default: 120, curve: "exponential" },
-        // Bipolar (seed `bipolar: true`): 0 = straight, + delays the offbeat
+        // Bipolar (min < 0 < max): 0 = straight, + delays the offbeat
         // (standard shuffle), − pushes it early. Applies to the internal clock;
         // external clock is passed through unswung.
         Swing: { min: -1, max: 1, default: 0, curve: "linear" },
@@ -329,7 +333,7 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       slug: "trigger-sequencer",
       kernel: triggerSequencerKernel,
       reportsStep: true, // current step surfaced to the editor's step buttons
-      // Fully previewed. No Len control in this seed — the cycle hard-wraps at
+      // Fully previewed. No Len control on this module — the cycle hard-wraps at
       // 8 steps unless shortened by patching an S<n> output back into Rst (see
       // triggerSequencer.ts header). CV modulates Gate Len 1 V/oct.
       inJacks: ["Clk", "Rst", "CV"],
@@ -353,7 +357,7 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       slug: "ring-modulator",
       kernel: ringModKernel,
       // DC-coupled bipolar multiplier: Out = X * Y / CV_BIPOLAR_MAX (see ringMod.ts).
-      // No controls in the seed; unpatched X or Y reads as 0 V (no internal carrier).
+      // No controls; unpatched X or Y reads as 0 V (no internal carrier).
       inJacks: ["X", "Y"],
       outJacks: ["Out"],
       params: {},
@@ -495,7 +499,7 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       // Fully previewed. Linear, constant-rate slew (not a one-pole filter) with
       // independent Rise/Fall; each raw 0..1 knob maps in-kernel onto a
       // 0.0005..2 s/V rate, 0 = exact bypass for that direction — see
-      // slewLimiter.ts header and packages/audio/docs/signals.md.
+      // slewLimiter.ts header and docs/signals.md.
       inJacks: ["In", "Rise CV", "Fall CV"],
       outJacks: ["Out"],
       params: {
@@ -513,7 +517,7 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       // (+Level×+In) − (−Level×−In) + Offset + Offset CV directly (no
       // clipping/smoothing); Gate/Inv Gate compare Sum to 0 V with Gap-knob
       // symmetric hysteresis (Gap = 0 is a strict, non-hysteretic zero
-      // comparison) — see comparator.ts header and packages/audio/docs/signals.md.
+      // comparison) — see comparator.ts header and docs/signals.md.
       inJacks: ["+ In", "− In", "Offset CV"],
       outJacks: ["Gate", "Inv Gate", "Sum"],
       params: {

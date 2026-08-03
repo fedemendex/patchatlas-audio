@@ -1,7 +1,7 @@
-// Thin AudioWorklet host over the pure engine (AP-7). Owns an
-// Interpreter | null; graphs are compiled on the main thread and arrive whole
-// via postMessage — this file never sees a PatchDraftDoc and imports only
-// pure engine TS (no React, no DOM, no api.ts).
+// Thin AudioWorklet host over the pure engine. Owns an Interpreter | null;
+// graphs are compiled on the main thread and arrive whole via postMessage —
+// this file never sees a Patch or any host type, and imports only pure
+// engine TS (no DOM, no framework, no network).
 //
 // Graph swaps fade the current output to silence (~30 ms), swap interpreters,
 // then fade back in. Voices restart; no state carry-over — a deliberate

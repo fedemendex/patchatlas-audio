@@ -7,7 +7,7 @@
 //
 // Units: each control is the time, in seconds, required to traverse ONE
 // engine voltage unit ("s/V" — a rate control, not a full-scale time). The
-// seed declares Rise/Fall as plain knobs with no numeric range, so the raw
+// Rise/Fall are plain knobs with no hardware-derived range, so the raw
 // 0..1 knob value (registry ParamSpec: linear, min 0, max 1, default 0) is
 // mapped exponentially in-kernel onto [TIME_PER_V_MIN_S, TIME_PER_V_MAX_S]
 // s/V — the same in-kernel-mapping convention sample-and-hold's Slew control
@@ -43,7 +43,7 @@
 // voltage range — it is only ever moved toward, and stopped at, the target,
 // so DC, negative, and bipolar CV all pass through unchanged in shape.
 //
-// Jack/param layout (seed declaration order):
+// Jack/param layout (registry declaration order):
 //   ins[0] = In        ins[1] = Rise CV   ins[2] = Fall CV
 //   outs[0] = Out
 //   params[0] = Rise (raw 0..1, in-kernel exponential mapping — see above)

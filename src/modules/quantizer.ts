@@ -1,6 +1,6 @@
 // Quantizer kernel for slug "quantizer".
 // Snaps an incoming 1 V/oct pitch CV to the nearest note in the selected
-// scale. All scales are fixed to a C root (packages/audio/docs/signals.md: 0 V = C4).
+// scale. All scales are fixed to a C root (docs/signals.md: 0 V = C4).
 //
 // Algorithm: 1 semitone = 1/12 V (see oscillator.ts's Fine param range for
 // the same convention). For each pitch class in the selected scale, find

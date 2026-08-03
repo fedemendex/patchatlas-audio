@@ -1,9 +1,9 @@
 # Kernel PR Checklist
 
 Apply this checklist to every PR that adds or modifies a module kernel
-(`src/modules/**`, `src/engine/**`). It is the enforcement arm of the
-roadmap's review checklist (`docs/issues/audio-preview-roadmap.md`) for kernel code
-specifically. A kernel PR that fails any line is not mergeable.
+(`src/modules/**`, `src/engine/**`). A kernel PR that fails any line is not
+mergeable. For the full walkthrough of adding a module, see
+[`adding-a-kernel.md`](adding-a-kernel.md).
 
 ## Allocation discipline
 
@@ -24,9 +24,12 @@ specifically. A kernel PR that fails any line is not mergeable.
 - [ ] A numeric rendering test exists (Vitest, headless): render buffers by calling
       `init` + `process` directly and assert on the numbers (frequency via zero crossings,
       gain ratios, envelope shape, …). "Doesn't throw" is not a test.
-- [ ] Jack and param names in the `ModuleDSP` entry are seed **names** verified against
-      `seed/generic_modules.json` — the registry-integrity test
-      (`src/modules/registry.test.ts`) passes.
+- [ ] The `ModuleDSP` entry's jack and param **declaration order** is the slot order the
+      kernel reads (`inJacks[k]` → `ins[k]`, `outJacks[k]` → `outs[k]`, param key order →
+      `params[k]`), and the registry/definition tests
+      (`src/modules/registry.test.ts`, `src/modules/definitions.test.ts`) are updated and
+      passing. Reordering an existing module's jacks or params rewires every compiled graph
+      and is a breaking change.
 
 ## Architecture
 

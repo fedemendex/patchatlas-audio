@@ -1,7 +1,7 @@
-// Tests for #285's instance-based engine runtime: createEngine() against a
-// mocked AudioContext/AudioWorkletNode (no real Web Audio in jsdom). Focuses
-// on lifecycle and host/routing contracts not already exercised through
-// useAudioEngine.test.ts (which covers the same Engine via the React wrapper).
+// Tests for the instance-based engine runtime: createEngine() against a
+// mocked AudioContext/AudioWorkletNode (no real Web Audio available under
+// Node). Covers the lifecycle and host/routing contracts documented in
+// docs/architecture.md, "Runtime lifecycle".
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createEngine } from "./session";

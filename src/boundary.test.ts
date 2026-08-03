@@ -1,11 +1,11 @@
 // @vitest-environment node
-// Boundary enforcement (#286, docs/audio/extraction-plan.md): engine/,
-// modules/ and worklet/ are the directories that move to the standalone
-// package. No file under them may import anything outside that boundary —
-// "vitest" is the sole exception, and only inside *.test.ts(x) files — so a
-// PatchAtlas import (a domain type, an adapter, a React component) can never
-// creep back in before the #287 move. This is what makes that move
-// mechanical rather than reviewed by eye.
+// Boundary enforcement: engine/, modules/ and worklet/ are the package's
+// self-contained core. No file under them may import anything outside that
+// boundary — "vitest" is the sole exception, and only inside *.test.ts(x)
+// files — so a host-application import (a domain type, an adapter, a UI
+// component) can never creep in. This is what keeps the "zero runtime
+// dependencies, no host coupling" claim mechanical rather than reviewed by
+// eye.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -16,7 +16,7 @@ const BOUNDARY_DIRS = ["engine", "modules", "worklet"];
 const AUDIO_ROOT = path.dirname(new URL(import.meta.url).pathname);
 
 export interface SourceFile {
-  /** Path relative to packages/audio/src, posix-separated, e.g. "modules/registry.ts". */
+  /** Path relative to src/, posix-separated, e.g. "modules/registry.ts". */
   relPath: string;
   content: string;
 }

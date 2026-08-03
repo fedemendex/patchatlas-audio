@@ -1,16 +1,17 @@
 // The pure execution half of the engine: takes a compiled EngineGraph,
 // preallocates every buffer and lookup in the constructor, and runs kernels
-// block by block. Zero browser dependencies — Vitest renders audio headlessly
-// through this class, and the AP-7 worklet is a thin shell over it.
+// block by block. Internal — not exported from src/index.ts. Zero browser
+// dependencies: Vitest renders audio headlessly through this class, and the
+// worklet processor is a thin shell over it.
 //
-// Hot-path discipline (see packages/audio/docs/kernel-checklist.md): runBlock and
+// Hot-path discipline (see docs/kernel-checklist.md): runBlock and
 // readOutput allocate nothing — no `new`, no object/array literals, no
 // closures, no array methods. Plain indexed loops only. All string/map work
 // happens in the constructor or in setParam (a cold control path).
 //
 // Feedback timing note: the one-block feedback delay is guaranteed per render
 // block. With partial blocks (n < BLOCK_FRAMES) the delay in samples equals
-// the previous block's length; the AP-7 worklet always calls with
+// the previous block's length; the worklet always calls with
 // n = BLOCK_FRAMES, where the delay is exactly BLOCK_FRAMES samples.
 
 import type { Kernel } from "./kernel";
@@ -333,10 +334,10 @@ export class Interpreter {
    * IMPORTANT — engine units only: this method applies no curve transform.
    * Values must already be in engine units (e.g. Hz for Cutoff, not a
    * normalised 0..1 knob position). The `curve` field in ParamSpec is a
-   * UI/compile-time hint consumed by the adapter's `paramValue()` (patchAdapter.ts); any
-   * future live-param fast-path (e.g. knob automation) must apply the same
-   * exponential mapping before calling setParam — passing a normalised value
-   * for an exponential param will pin the result at `min` for any input < min.
+   * UI/compile-time hint consumed by params.ts's normalizedToEngineValue; a
+   * host driving live params (knob automation) must apply that mapping before
+   * calling setParam — passing a normalised value for an exponential param
+   * will pin the result at `min` for any input < min.
    */
   setParam(instanceId: string, controlName: string, value: number): void {
     const nodeIndex = this.nodeIndexById.get(instanceId);

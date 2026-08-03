@@ -4,7 +4,7 @@
 // Clean-room implementation from the standard published two-integrator SVF
 // mathematical structure. No GPL-derived code; no hardware modeling.
 //
-// Jack layout (seed declaration order):
+// Jack layout (registry declaration order):
 //   ins[0] = In         — audio input; null → silence
 //   ins[1] = 1V/Oct     — pitch tracking CV; null → 0 V; scaled by Track Amt
 //   ins[2] = Cut CV     — exponential cutoff CV; null → 0 V; scaled by CV Amt

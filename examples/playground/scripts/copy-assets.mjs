@@ -8,8 +8,8 @@
 // import map pointing the bare specifier at that copy: the browser resolves
 // exactly the same artifact npm's `exports` map would have handed a bundler,
 // unmodified. Both resolutions go through import.meta.resolve() against
-// "patchatlas-audio"'s own package.json, exactly like
-// packages/audio/scripts/smoke.mjs, so a broken or renamed export (the main
+// "patchatlas-audio"'s own package.json, exactly like the root package's
+// scripts/smoke.mjs, so a broken or renamed export (the main
 // entry or "./worklet.js") fails this build instead of silently shipping a
 // stale copy.
 //

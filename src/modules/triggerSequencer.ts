@@ -8,7 +8,7 @@
 // `sequencer`'s On buttons.
 //
 // Step counter: 0-based, hard-wraps modulo STEP_COUNT (8) — there is no `Len`
-// control in this seed. The *effective* cycle length is instead entirely
+// control on this module. The *effective* cycle length is instead entirely
 // patch-driven: the classic modular trick of patching one of the S<n> outputs
 // back into `Rst` shortens the cycle, because the resulting Rst edge (delayed
 // one sample by the interpreter's feedback-edge plumbing — the same mechanism

@@ -6,14 +6,14 @@ import { BLOCK_FRAMES } from "../engine/units";
 
 const SR = 48000;
 
-// Scale selector positions, matching seed/generic_modules.json and registry.ts.
+// Scale selector positions, matching the Scale ParamSpec in registry.ts.
 const CHROM = 0;
 const MAJ = 1;
 const MIN = 2;
 const PENT = 3;
 const HARM_MIN = 4;
 
-// Volts per semitone (1 V/oct pitch CV convention, see packages/audio/docs/signals.md).
+// Volts per semitone (1 V/oct pitch CV convention, see docs/signals.md).
 const SEMI = 1 / 12;
 
 const CHROM_PCS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];

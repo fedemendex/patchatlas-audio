@@ -591,10 +591,10 @@ describe("sequencerKernel — safety", () => {
 });
 
 // ── 7. On defaults through the compiler (missing → ON, explicit OFF rests) ────
-// Generic Patch, not the PatchAtlas adapter (#286: modules/ may not depend on
-// PatchAtlas domain types) — params are engine units keyed by seed control
-// NAME directly, so an omitted "On n" falls back to the registry default (1 =
-// ON) via resolvePatch (diagnostics.ts), exactly as an explicit 0 rests it.
+// Driven through the public Patch schema — params are engine units keyed by
+// control NAME directly, so an omitted "On n" falls back to the registry
+// default (1 = ON) via resolvePatch (diagnostics.ts), exactly as an explicit
+// 0 rests it.
 
 describe("sequencer On defaults — missing params gate, explicit Off rests", () => {
   function compileSeqParams(params: Record<string, number>): Float32Array {

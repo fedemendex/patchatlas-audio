@@ -1,6 +1,5 @@
 // patchatlas-audio playground entry point. Imports only the package's public
-// API (see boundary.test.ts) -- no PatchAtlas code, no internal engine
-// files, no framework.
+// API (see boundary.test.ts) -- no internal engine files, no framework.
 //
 // workletUrl is computed relative to this module's own URL and points at a
 // copy of the package's dist/worklet.js placed alongside dist/main.js by
@@ -9,8 +8,9 @@
 // on the package's own bundled-in default, which would resolve against
 // wherever tsdown's bundler happens to inline patchatlas-audio's code.
 //
-// AudioContext ownership follows extraction-plan.md §5: this file creates
-// and owns the context (resume/close) and all routing --
+// AudioContext ownership follows the package's contract (docs/architecture.md,
+// "Runtime lifecycle"): this file creates and owns the context (resume/close)
+// and all routing --
 // engine.output.connect(context.destination) and
 // engine.output.connect(analyser) both live here, never inside the engine.
 
@@ -138,8 +138,8 @@ stopBtn.addEventListener("click", () => {
 window.addEventListener("beforeunload", () => {
   stopScope?.();
   engine?.dispose();
-  // Ours to close (extraction-plan.md §5: the engine must never close a
-  // context it did not create) -- Stop deliberately leaves the context
+  // Ours to close (the engine must never close a context it did not create)
+  // -- Stop deliberately leaves the context
   // running so a later Start is instant; page teardown is the actual end of
   // this context's lifetime.
   void context?.close();

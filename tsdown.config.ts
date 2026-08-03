@@ -1,9 +1,9 @@
 import { defineConfig } from "tsdown";
 
-// Two independent build configs, not two entries on one config (#287,
-// docs/audio/extraction-plan.md §7/§3). A single multi-entry config lets
-// rolldown factor shared code (compilePatch, registry, ...) into a common
-// chunk imported by both outputs -- fine for dist/index.js, fatal for
+// Two independent build configs, not two entries on one config (see
+// docs/architecture.md, "Build and delivery"). A single multi-entry config
+// lets rolldown factor shared code (compilePatch, registry, ...) into a
+// common chunk imported by both outputs -- fine for dist/index.js, fatal for
 // dist/worklet.js, which must be one fully self-contained file: `import`
 // inside an AudioWorklet script isn't reliably supported outside Chromium.
 // Separate configs guarantee no chunk is ever shared between the two.

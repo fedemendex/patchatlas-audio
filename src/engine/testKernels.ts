@@ -1,6 +1,7 @@
-// Test-only toy kernels for exercising the Kernel contract and (in AP-3/AP-4) the
-// compiler/interpreter, without depending on any real seeded module. These slugs are
-// NOT in seed/generic_modules.json and must never enter the production registry.
+// Test-only toy kernels for exercising the Kernel contract and the
+// compiler/interpreter, without depending on any real module. These slugs are
+// not in the production registry (modules/registry.ts) and must never be
+// added to it.
 
 import type { Kernel } from "./kernel";
 import type { ModuleDSP } from "../modules/registry";
@@ -44,9 +45,9 @@ export const toyGainKernel: Kernel<Record<string, never>> = {
   },
 };
 
-// Tiny registry fixture for AP-3/AP-4 compiler/interpreter tests. The slugs are
-// deliberately absent from the seed, so these entries would fail the seed-integrity
-// validator — which is exactly why they stay out of the production registry.
+// Tiny registry fixture for compiler/interpreter tests. The slugs are
+// deliberately not module names the package ships, so nothing here can be
+// mistaken for — or leak into — the production registry.
 export const testRegistry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
   [
     "toy-sine",

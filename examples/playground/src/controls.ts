@@ -1,9 +1,8 @@
 // Renders one param control per module instance in the active patch, driven
 // entirely by the public surface: getModuleDefinition() for the module's
 // ParamSpec shape, and the curve helpers for the 0..1 slider position <->
-// engine-unit value mapping a real ModulePanel would do (extraction-plan.md
-// §4). "positions" params (switches) render as a <select> of their labels
-// instead of a slider.
+// engine-unit value mapping a real module panel would do. "positions" params
+// (switches) render as a <select> of their labels instead of a slider.
 
 import {
   defaultNormalizedValue,

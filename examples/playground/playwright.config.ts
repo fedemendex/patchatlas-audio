@@ -1,8 +1,8 @@
-// Playwright config for the playground's headless smoke test -- the same
-// RMS-probe technique as web/e2e/audio-smoke.spec.ts, but driving the built
-// package (dist/patchatlas-audio.js + dist/worklet.js) through the built
-// playground (dist/main.js), not the PatchAtlas app. webServer always
-// rebuilds first so every invocation tests a fresh dist/, never a stale one.
+// Playwright config for the playground's headless smoke test: an RMS probe on
+// a real AnalyserNode, driving the built package (dist/patchatlas-audio.js +
+// dist/worklet.js) through the built playground (dist/main.js). webServer
+// always rebuilds first so every invocation tests a fresh dist/, never a
+// stale one.
 
 import { defineConfig, devices } from "@playwright/test";
 

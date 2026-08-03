@@ -6,7 +6,7 @@
 // Fade (bipolar knob, -1..1) sets the blend position: -1 = full A, 0 = equal
 // A/B mix, +1 = full B. CV combines with Fade using the same bipolar-CV
 // convention as filter.ts's Res + Res CV: normalized by CV_BIPOLAR_MAX and
-// summed directly (no separate CV Amt control is seeded), then clamped to
+// summed directly (this module has no separate CV Amt control), then clamped to
 // the knob's own [-1, 1] range before mapping to the [0, 1] blend position
 // t = (fade + 1) / 2 — so CV can drive the fade all the way to either exact
 // endpoint. Unpatched A/B/CV all read as 0 V (silence / no CV offset), so

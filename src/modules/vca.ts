@@ -7,7 +7,7 @@
 //   outs[0] = Out
 //   params[0] = Gain (0..1)
 //   params[1] = CV Amt (0..1)   attenuates the CV input before normalization
-//   params[2] = Response (0 = Exp, 1 = Lin, from the seed switch positions)
+//   params[2] = Response (0 = Exp, 1 = Lin, from the Response switch positions)
 //
 // Gain calculation when CV is patched:
 //   normalizedCv = max(0, CV[i] * cvAmt / CV_BIPOLAR_MAX)   (no upper clamp)

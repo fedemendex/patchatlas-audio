@@ -1,5 +1,5 @@
-// Virtual-voltage constants for the audio preview engine.
-// Canonical reference: packages/audio/docs/signals.md
+// Virtual-voltage constants for the engine.
+// Canonical reference: docs/signals.md
 // No kernel may inline these numbers — always import from here.
 
 /** C4 frequency in Hz (0 V pitch reference). */
@@ -30,8 +30,8 @@ export const TRIGGER_SECONDS = 0.001;
 export const BLOCK_FRAMES = 128;
 
 /**
- * Frontend-only engine version string. Not persisted — backend/schema work is deferred
- * until the preview is public-facing (see audio-preview-roadmap.md).
+ * Informational engine version string. Not part of the public API and not
+ * persisted anywhere; nothing in the render path reads it.
  */
 export const ENGINE_VERSION = "0.1.0";
 

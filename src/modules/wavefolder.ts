@@ -36,7 +36,7 @@
 // No oversampling in this v1: a hard reflection introduces new harmonics above
 // the input's bandwidth, and without band-limiting they can alias above
 // Nyquist at high Fold settings on bright material — a known, documented
-// preview-quality trade-off (see packages/audio/docs/signals.md), not a hidden CPU cost.
+// preview-quality trade-off (see docs/signals.md), not a hidden CPU cost.
 //
 // Jack layout:
 //   ins[0] = In        ins[1] = Fold CV     ins[2] = Sym CV

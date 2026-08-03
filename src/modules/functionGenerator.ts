@@ -39,7 +39,7 @@
 // exactly like the hardware trick (the first sample fires the Schmitt, the
 // fall drags EOC low, and its rising edge at the bottom re-triggers).
 //
-// Jack/param layout (seed declaration order):
+// Jack/param layout (registry declaration order):
 //   ins[0] = Trig     — Schmitt-triggered; starts/restarts a rise transient
 //   ins[1] = In       — slew/follower input and transient floor; null → 0 V
 //   ins[2] = Rise CV  — 1 oct/V rise-time scaling (positive = slower)

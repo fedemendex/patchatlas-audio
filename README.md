@@ -133,13 +133,19 @@ part of the public API.
 
 ## More
 
-* [`docs/architecture.md`](docs/architecture.md) — the compile → interpret → worklet pipeline,
-  the one-block feedback model, and the allocation-free `process()` contract every kernel
-  follows.
-* [`docs/signals.md`](docs/signals.md) — the normative voltage/signal-range standard.
-* [`docs/kernel-checklist.md`](docs/kernel-checklist.md) — the review checklist every kernel
-  PR must satisfy (useful context if you're reading the source, even though third-party
-  kernels aren't pluggable yet).
+* **Understand the architecture** — [`docs/architecture.md`](docs/architecture.md): the
+  technology stack, the `Patch` → `EngineGraph` → `Interpreter` → kernel → output path, the
+  main-thread/`AudioWorklet` boundary, the one-block feedback model, and the allocation-free
+  `process()` contract every kernel follows.
+* **Add a built-in kernel** — [`docs/adding-a-kernel.md`](docs/adding-a-kernel.md): the
+  complete contributor workflow, from a new file under `src/modules/` through the registry to
+  the tests you must update.
+* **Signal and voltage conventions** — [`docs/signals.md`](docs/signals.md): the normative
+  voltage/signal-range standard.
+* **Contribute** — [`CONTRIBUTING.md`](CONTRIBUTING.md): setup, every verification command,
+  and the ground rules. [`docs/kernel-checklist.md`](docs/kernel-checklist.md) is the review
+  checklist every kernel PR must satisfy.
+* Everything under [`docs/`](docs) is indexed in [`docs/README.md`](docs/README.md).
 
 ## License
 

@@ -35,7 +35,7 @@
 // persisted beyond the instance's lifetime — recreating the module resets it
 // to low, matching every other stateful kernel's convention.
 //
-// Jack/param layout (seed declaration order):
+// Jack/param layout (registry declaration order):
 //   ins[0] = + In        ins[1] = − In        ins[2] = Offset CV
 //   outs[0] = Gate        outs[1] = Inv Gate   outs[2] = Sum
 //   params[0] = Offset (bipolar, engine volts)

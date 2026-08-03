@@ -1,8 +1,10 @@
 # Audio Engine — Signal and Voltage Standard
 
 This is the canonical reference for the virtual-voltage convention used by every kernel in
-the audio preview engine. All numbers are normative. Kernels must import constants from
-`src/engine/units.ts`; no kernel may hardcode tuning or gate constants.
+the engine. All numbers are normative. Kernels must import constants from
+[`src/engine/units.ts`](../src/engine/units.ts); no kernel may hardcode tuning or gate
+constants. See [`architecture.md`](architecture.md) for how kernels fit into the engine and
+[`adding-a-kernel.md`](adding-a-kernel.md) for the contributor workflow.
 
 ## Signal types
 
@@ -326,8 +328,8 @@ inputs/control were renamed (`A` → `+ In`, `B` → `− In`, `Thresh` (input) 
 ## Clock and sequencer timing
 
 All musical time is generated inside kernels, sample by sample, on the audio thread — never
-`setTimeout`/`setInterval`/`requestAnimationFrame`/`Date.now`/`performance.now`. (The one
-timer under `web/src/audio`, in `useAudioEngine`, is a non-musical graph-rebuild debounce.)
+`setTimeout`/`setInterval`/`requestAnimationFrame`/`Date.now`/`performance.now`. The package
+uses no wall-clock timer anywhere in the audio path.
 
 - **Clock** (`clock`): the `Tempo` knob sets a quarter-note rate (30 → 300 BPM, default 120).
   `Clk` emits a standard trigger (1 ms at 10 V) each tick; timing uses a fractional sample
@@ -388,5 +390,6 @@ the complexity of sub-block iterative solving.
 ## Kernel rule
 
 **No kernel may hardcode any tuning or gate constant.** Every numeric threshold — `261.6256`,
-`5`, `0.1`, `1`, `10`, `0.001`, `128` — must be imported from `units.ts`. Violations are
-caught in review using the kernel checklist (AP-2).
+`5`, `0.1`, `1`, `10`, `0.001`, `128` — must be imported from
+[`units.ts`](../src/engine/units.ts). Violations are caught in review using the
+[kernel checklist](kernel-checklist.md).

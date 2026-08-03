@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Built-package smoke test (#287, docs/audio/extraction-plan.md §7):
+// Built-package smoke test (see docs/architecture.md, "Build and delivery"):
 // consumes only `dist`, through the package's own `exports` map -- via
 // self-reference (Node resolves the "patchatlas-audio" specifier against
 // this package's own package.json, no workspace symlink required) -- so a

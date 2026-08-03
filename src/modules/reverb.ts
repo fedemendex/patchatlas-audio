@@ -44,13 +44,13 @@
 //     wet = mix · WET_SCALE (upstream folds the same 0.6 into its wet gain).
 //     Mix = 0 is bit-exact dry.
 //   - Decay is capped below 1 (no freeze — out of scope per GH #83) and
-//     "Decay CV" (seed group "Decay") adds to it per sample, ±CV_BIPOLAR_MAX
+//     "Decay CV" adds to it per sample, ±CV_BIPOLAR_MAX
 //     spanning the full range.
 //   - Params/inputs are NaN/Infinity-guarded and the two tank injection sums
 //     are hard-clamped (±REVERB_STATE_LIMIT_V, numerical safety only) — with
 //     loop gain < 1 the tank is unconditionally stable.
 //
-// Jack layout (seed declaration order):
+// Jack layout (registry declaration order):
 //   ins[0] = In L     — audio input; null → mono-normalled from In R
 //   ins[1] = In R     — audio input; null → mono-normalled from In L
 //   ins[2] = Decay CV — decay CV; null → 0 V
@@ -324,7 +324,7 @@ export const reverbKernel: Kernel<ReverbState> = {
       }
       if (inL === null) dryL = dryR;
 
-      // Decay CV (seed jack "Decay CV"): a ±CV_BIPOLAR_MAX signal spans the
+      // Decay CV: a ±CV_BIPOLAR_MAX signal spans the
       // full 0..1 Decay range on top of the knob. Capped at DECAY_MAX (< 1):
       // freeze is out of scope (GH #83).
       let decay01 = baseDecay;

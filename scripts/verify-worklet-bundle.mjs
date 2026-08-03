@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Build assertion, not a manual check (#287, docs/audio/extraction-plan.md
-// §3): `import` inside an AudioWorklet script isn't reliably supported
+// Build assertion, not a manual check (see docs/architecture.md, "Build and
+// delivery"): `import` inside an AudioWorklet script isn't reliably supported
 // outside Chromium, so dist/worklet.js must be one fully self-contained
 // file. Run automatically as the last step of `npm run build`; also
 // imported by scripts/smoke.mjs so the same check is exercised as a test

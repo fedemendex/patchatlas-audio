@@ -1,12 +1,12 @@
-// Import-boundary enforcement (#288 acceptance criterion: "Grep confirms no
-// import resolves outside patchatlas-audio's public entry"). Every import of
-// the package must be the bare "patchatlas-audio" specifier -- never a deep
-// path into its dist/ or src/ -- and every relative import must resolve
-// inside this directory, so no file here can reach into PatchAtlas code, the
-// engine's internals, or the package's TypeScript sources. AST-based (not
-// regex), matching packages/audio/src/boundary.test.ts's approach, so a
-// comment mentioning an import-shaped string can never be mistaken for a
-// real specifier.
+// Import-boundary enforcement: no import here may resolve outside
+// patchatlas-audio's public entry. Every import of the package must be the
+// bare "patchatlas-audio" specifier -- never a deep path into its dist/ or
+// src/ -- and every relative import must resolve inside this directory, so no
+// file here can reach into the engine's internals or the package's TypeScript
+// sources. That is what makes the playground a genuine consumer test rather
+// than a privileged one. AST-based (not regex), matching the root package's
+// src/boundary.test.ts, so a comment mentioning an import-shaped string can
+// never be mistaken for a real specifier.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -27,7 +27,7 @@ export interface BoundaryViolation {
 
 // This file itself is excluded: it is test/tooling code (imports "vitest",
 // "typescript", "node:fs", "node:path"), not part of the shipped playground,
-// the same way packages/audio/src/boundary.test.ts lives outside the
+// the same way the root package's src/boundary.test.ts lives outside the
 // directories it scans.
 const SELF = path.basename(new URL(import.meta.url).pathname);
 
