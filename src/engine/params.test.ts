@@ -4,6 +4,7 @@ import {
   engineValueToNormalized,
   defaultNormalizedValue,
   isBipolarParam,
+  clampToSpecRange,
 } from "./params";
 import type { ParamSpec } from "./kernel";
 import { registry } from "../modules/registry";
@@ -126,6 +127,18 @@ describe("isBipolarParam", () => {
 
   it("is never true for a switch", () => {
     expect(isBipolarParam(positions(0, ["A", "B"]))).toBe(false);
+  });
+});
+
+describe("clampToSpecRange", () => {
+  it("passes through a value already inside [min, max]", () => {
+    expect(clampToSpecRange(linear(0, 10, 3), 5)).toBe(5);
+  });
+
+  it("clamps above max and below min", () => {
+    const spec = positions(0, ["A", "B", "C"]);
+    expect(clampToSpecRange(spec, 100)).toBe(spec.max);
+    expect(clampToSpecRange(spec, -100)).toBe(spec.min);
   });
 });
 

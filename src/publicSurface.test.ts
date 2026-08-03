@@ -19,6 +19,7 @@ describe("audio public surface", () => {
         "engineValueToNormalized",
         "defaultNormalizedValue",
         "isBipolarParam",
+        "clampToSpecRange",
         "REVERB_SLUG",
         "REVERB_PRESET_CONTROL",
         "REVERB_PRESET_VISIBLE",

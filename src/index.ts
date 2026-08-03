@@ -24,6 +24,7 @@ export {
   engineValueToNormalized,
   defaultNormalizedValue,
   isBipolarParam,
+  clampToSpecRange,
 } from "./engine/params";
 export {
   REVERB_SLUG,

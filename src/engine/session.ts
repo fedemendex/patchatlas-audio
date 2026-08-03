@@ -30,7 +30,15 @@ export interface EngineOptions {
 
 export interface Engine {
   readonly output: AudioNode;
-  load(patch: Patch): { loaded: boolean; diagnostics: Diagnostic[] };
+  /**
+   * Compiles `patch` and loads the result, unless `graph` is supplied — then
+   * that pre-compiled graph is trusted and used as-is (no recompilation),
+   * for a caller (e.g. a dry-run) that already ran compilePatch(patch, ...)
+   * itself. `graph` must actually be patch's compiled graph; nothing here
+   * re-checks that, and `diagnostics` is empty in that case since the
+   * caller's own compile already produced them.
+   */
+  load(patch: Patch, graph?: EngineGraph): { loaded: boolean; diagnostics: Diagnostic[] };
   setParam(moduleId: string, param: string, value: number): void;
   start(): void;
   stop(): void;
@@ -90,20 +98,22 @@ export async function createEngine(
   return {
     output: node,
 
-    load(patch: Patch): { loaded: boolean; diagnostics: Diagnostic[] } {
+    load(patch: Patch, graph?: EngineGraph): { loaded: boolean; diagnostics: Diagnostic[] } {
       assertNotDisposed();
-      const { graph, diagnostics, loaded } = compilePatch(patch, registry);
+      const result = graph
+        ? { graph, diagnostics: [] as Diagnostic[], loaded: true }
+        : compilePatch(patch, registry);
       // `loaded: false` means the Patch was structurally ambiguous (a
       // duplicate module id a connection references — diagnostics.ts) and
       // `graph` was built from an arbitrarily incomplete module set; it must
       // not replace a good lastGraph or be pushed live to the worklet.
-      if (loaded) {
-        lastGraph = graph;
+      if (result.loaded) {
+        lastGraph = result.graph;
         // Only push to the worklet if transport is already running — an
         // engine loaded before start() must not resurrect sound on its own.
-        if (started) post({ type: "graph", graph });
+        if (started) post({ type: "graph", graph: result.graph });
       }
-      return { loaded, diagnostics };
+      return result;
     },
 
     setParam(moduleId: string, param: string, value: number): void {

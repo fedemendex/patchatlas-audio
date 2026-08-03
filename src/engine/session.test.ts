@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createEngine } from "./session";
 import type { Patch } from "./patch";
+import type { EngineGraph } from "./graph";
 
 const playablePatch: Patch = {
   modules: [
@@ -86,6 +87,30 @@ describe("createEngine", () => {
     expect(node.port.postMessage).toHaveBeenLastCalledWith(
       expect.objectContaining({ type: "graph" }),
     );
+  });
+
+  it("load() with a caller-supplied graph skips recompilation and posts that graph as-is", async () => {
+    const ctx = new MockAudioContext();
+    const engine = await createEngine(ctx as unknown as AudioContext);
+    const node = MockAudioWorkletNode.instances[0];
+
+    // A graph that could not have come from compiling `playablePatch` (wrong
+    // node count) proves load() used it verbatim instead of recompiling.
+    const suppliedGraph: EngineGraph = {
+      nodes: [{ instanceId: "only-node", slug: "oscillator", params: [] }],
+      edges: [],
+      outputNodes: [],
+    };
+
+    const { loaded, diagnostics } = engine.load(playablePatch, suppliedGraph);
+    expect(loaded).toBe(true);
+    expect(diagnostics).toEqual([]);
+
+    engine.start();
+    expect(node.port.postMessage).toHaveBeenCalledExactlyOnceWith({
+      type: "graph",
+      graph: suppliedGraph,
+    });
   });
 
   it("load() with a structurally ambiguous patch (loaded: false) never posts to the worklet and never overwrites the last good graph", async () => {

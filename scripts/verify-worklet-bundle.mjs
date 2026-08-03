@@ -10,11 +10,13 @@ import { readFileSync } from "node:fs";
 
 // Not anchored to line start: a future rolldown/tsdown version emitting a
 // statement mid-line (minification, a semicolon-joined line) must still be
-// caught. Requires the actual `from "..."`/`require("...")` shape (or a
-// bare `import "..."` side-effect import), not just the word "import", so a
-// prose comment mentioning imports can't produce a false positive.
+// caught. Requires the actual `from "..."`/`require("...")` shape, a bare
+// `import "..."` side-effect import, or a dynamic `import("...")` call
+// (there's no space before the `(`, unlike the static-import branch) — not
+// just the word "import", so a prose comment mentioning imports can't
+// produce a false positive.
 const IMPORT_OR_REQUIRE =
-  /\bimport\s+(?:[\w$*{},\s]+\s+from\s+)?["']|\bexport\s[^;\n]*\bfrom\s+["']|\brequire\s*\(\s*["']/;
+  /\bimport\s+(?:[\w$*{},\s]+\s+from\s+)?["']|\bimport\s*\(\s*["']|\bexport\s[^;\n]*\bfrom\s+["']|\brequire\s*\(\s*["']/;
 
 export function findUnresolvedImports(source) {
   return source.match(IMPORT_OR_REQUIRE) ?? null;

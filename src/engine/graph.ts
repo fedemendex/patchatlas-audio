@@ -31,8 +31,12 @@ export const compareId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 // Iterative Tarjan. `ids` must be sorted and `successors` lists sorted, so
 // component discovery — and therefore everything downstream — is
-// deterministic regardless of input array order.
-export function stronglyConnectedComponents(
+// deterministic regardless of input array order. Private: only
+// computeProcessingOrder calls this (no caller elsewhere in the package or
+// in PatchAtlas), and it's covered indirectly through that entry point by
+// graph.test.ts and compile.test.ts's shuffle test — kept unexported rather
+// than growing the module's surface for callers that don't exist.
+function stronglyConnectedComponents(
   ids: string[],
   successors: Map<string, string[]>,
 ): string[][] {
@@ -100,8 +104,9 @@ export function stronglyConnectedComponents(
 // cross-linked components can mark an edge whose unmarking would still leave
 // the remainder acyclic. Accepted for v1 by product decision — cycles use
 // one-block feedback, so over-marking costs one block of latency on that
-// edge, never incorrectness. No pruning pass.
-export function componentOrder(members: string[], successors: Map<string, string[]>): string[] {
+// edge, never incorrectness. No pruning pass. Private, same reasoning as
+// stronglyConnectedComponents above: no caller outside computeProcessingOrder.
+function componentOrder(members: string[], successors: Map<string, string[]>): string[] {
   if (members.length === 1) return members;
   const inComp = new Set(members);
   const visited = new Set<string>();
