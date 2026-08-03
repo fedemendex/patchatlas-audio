@@ -58,12 +58,17 @@ npm run typecheck && npm test && npm run build && npm run smoke \
 
 * **No runtime dependencies.** The package ships with an empty dependency tree; keep it that
   way. Build and test tooling is the only thing that belongs in `devDependencies`.
-* **`src/index.ts` is the public surface.** Everything else is internal.
-  [`src/publicSurface.test.ts`](src/publicSurface.test.ts) snapshots it, so any addition or
-  removal has to be deliberate.
+* **`src/index.ts` is the public TypeScript API.** No other module under `src/` is importable
+  by consumers. [`src/publicSurface.test.ts`](src/publicSurface.test.ts) snapshots the
+  exported names, so any addition or removal has to be deliberate. The package's other public
+  artifact is the built `dist/worklet.js`, resolved through the `"./worklet.js"` export — its
+  URL is public, its contents and message protocol are not.
 * **`process()` must not allocate.** See
   [`docs/kernel-checklist.md`](docs/kernel-checklist.md).
-* **The engine stays browser-free.** Tests run in a Node environment with no DOM; nothing
-  under `src/engine/` or `src/modules/` may touch a browser API.
+* **The DSP half stays browser-independent.** The compiler, graph logic, `Interpreter` and
+  every kernel must run under plain Node with no DOM and no `AudioContext` — that is what
+  makes numeric DSP tests possible. Web Audio belongs to exactly two places:
+  `src/engine/session.ts` (`AudioContext`, `AudioWorkletNode`) and `src/worklet/`
+  (`AudioWorkletProcessor` and its globals). Don't let it leak anywhere else.
 * **No host-application coupling.** The package owns its module vocabulary and never reads a
   downstream consumer's assets. [`src/boundary.test.ts`](src/boundary.test.ts) enforces this.

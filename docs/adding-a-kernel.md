@@ -47,6 +47,9 @@ One kernel per file, named `<module>Kernel`, exported as a `const`. Start with a
 comment that states the slug and the full positional layout — that comment is how the next
 reader maps `ins[2]` back to a jack name, and every existing kernel has one.
 
+The file has three parts, marked **(a)**, **(b)** and **(c)** in the skeleton below: the state
+interface, `init(sr)`, and `process(...)`.
+
 ```ts
 // Sub-octave divider kernel for slug "sub-octave".
 // Divides a rising-edge signal down and emits a bipolar square.
@@ -67,7 +70,7 @@ import {
 // convention* comes from units.ts instead.
 const DEFAULT_DIVISION = 0;
 
-// Step 2: every value that must survive across blocks goes in the state
+// (a) State: every value that must survive across blocks goes in the state
 // interface. Nothing persistent may live in a module-level variable — two
 // instances of the same module share the kernel object and would collide.
 interface SubOctaveState {
@@ -78,13 +81,13 @@ interface SubOctaveState {
 }
 
 export const subOctaveKernel: Kernel<SubOctaveState> = {
-  // Step 3: init(sr) allocates EVERYTHING, once. Scratch Float32Arrays,
+  // (b) init(sr) allocates EVERYTHING, once. Scratch Float32Arrays,
   // delay lines, tables — all of it here, never in process().
   init(sr): SubOctaveState {
     return { invSr: 1 / sr, count: 0, high: false, inHigh: false };
   },
 
-  // Step 4: process() must not allocate. Plain indexed loops only.
+  // (c) process() must not allocate. Plain indexed loops only.
   process(state, ins, outs, params, n) {
     const inSig = ins[0];        // null when the jack is unpatched
     const inRst = ins[1];
@@ -119,7 +122,7 @@ export const subOctaveKernel: Kernel<SubOctaveState> = {
         state.inHigh = false;
       }
 
-      // Step 4 (cont.): write EVERY output sample, every block. Buffers are
+      // (c, cont.) Write EVERY output sample, every block. Buffers are
       // reused across blocks — a skipped sample replays stale audio.
       out[i] = state.high ? CV_BIPOLAR_MAX : -CV_BIPOLAR_MAX;
     }
@@ -146,7 +149,7 @@ export const subOctaveKernel: Kernel<SubOctaveState> = {
 
 ---
 
-## Step 5 — Register it in `src/modules/registry.ts`
+## Step 2 — Register it in `src/modules/registry.ts`
 
 Import the kernel at the top of the file, then add an entry to the `registry` map:
 
@@ -200,10 +203,11 @@ Two optional fields:
 
 ---
 
-## Step 8 — Add numeric DSP tests in `src/modules/<module>.test.ts`
+## Step 3 — Add numeric DSP tests in `src/modules/<module>.test.ts`
 
 Call `init` and `process` directly and assert on the numbers. **"Doesn't throw" is not a
-test.** The interpreter is browser-free, so this all runs headlessly under Vitest in Node.
+test.** Kernels and the interpreter are browser-independent, so this runs headlessly under
+Vitest in Node — no `AudioContext`, no DOM, no mocking.
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -249,7 +253,7 @@ Cover at minimum:
 
 ---
 
-## Step 9 — Update registry and definition tests
+## Step 4 — Update registry and definition tests
 
 Both of these assert exact counts and will fail until you update them:
 
@@ -269,7 +273,7 @@ export something new, that is a public-API change and needs its own discussion.
 
 ---
 
-## Step 10 — Update `signals.md` if you introduced new semantics
+## Step 5 — Update `signals.md` if you introduced new semantics
 
 If your module defines behaviour the standard does not yet cover — a new modulation
 convention, a new response curve, a new timing rule — add it to
@@ -279,7 +283,7 @@ described in `signals.md` is not finished.
 
 ---
 
-## Step 11 — Verify
+## Step 6 — Verify
 
 Run all of these from the repository root:
 

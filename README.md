@@ -5,9 +5,10 @@ patch as plain JSON — modules and cable connections, addressed by name — and
 compiles it, runs it in a single `AudioWorklet`, and hands you back an `AudioNode` you can
 route however you like.
 
-It ships 26 module kernels (oscillators, filters, envelopes, sequencers, a reverb, logic,
-sample & hold, and more) as pure, allocation-free TypeScript — no native Web Audio node graph
-under the hood, and no framework dependency. See
+Its module kernels — oscillators, filters, envelopes, sequencers, a reverb, logic, sample &
+hold, and more — are pure, allocation-free TypeScript: no native Web Audio node graph under
+the hood, and no framework dependency. Call `getModuleDefinitions()` for the authoritative
+list of what ships in the version you installed. See
 [`examples/playground`](examples/playground) for a runnable demo built entirely on the
 public API described here, and [`docs/architecture.md`](docs/architecture.md) for how the
 compile → interpret → worklet pipeline fits together.
@@ -73,7 +74,18 @@ engine units for you; `examples/playground/src/controls.ts` uses all four to bui
 and switches from a `ParamSpec`.
 
 Call `validate(patch, definitions)` for pure, audio-free structural diagnostics before you
-ever touch an `AudioContext`, and inspect `engine.load(patch).diagnostics` for the same
+ever touch an `AudioContext`. Both `validate` and `compilePatch` take a `slug → definition`
+map, which you build from the public projection:
+
+```ts
+const definitions = new Map(
+  getModuleDefinitions().map((definition) => [definition.slug, definition]),
+);
+
+const diagnostics = validate(patch, definitions);
+```
+
+Inspect `engine.load(patch).diagnostics` for the same
 structured `Diagnostic[]` after a live load — each diagnostic carries a stable `code`, a
 `severity`, and whether the offending module/jack/param/connection was dropped. Loading is
 lenient (an unresolvable connection is dropped, not a thrown error) except when a patch is

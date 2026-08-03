@@ -18,9 +18,9 @@ Read this before changing engine or kernel code. If you are adding a module kern
   [`tsdown.config.ts`](../tsdown.config.ts). Two independent build configs, not one
   multi-entry config — see [Build and delivery](#build-and-delivery).
 * **Tests:** Vitest, in a **Node** environment with `globals: false`
-  ([`vitest.config.ts`](../vitest.config.ts)). That choice is load-bearing: it is what
-  enforces the "zero browser dependencies" claim about the engine, rather than merely
-  asserting it in a comment.
+  ([`vitest.config.ts`](../vitest.config.ts)). That choice is load-bearing — it is what keeps
+  the DSP half genuinely browser-independent (below) rather than merely asserted in a
+  comment. Tests that do need Web Audio types, like `session.test.ts`, mock them explicitly.
 * **Browser verification:** [`examples/playground`](../examples/playground) is a real
   consumer of the built package, and its Playwright suite drives headless Chromium and
   RMS-probes a genuine `AnalyserNode` fed by the built worklet bundle. `scripts/smoke.mjs`
@@ -32,11 +32,25 @@ Read this before changing engine or kernel code. If you are adding a module kern
   Native Web Audio is confined to plumbing: the host's `AudioContext`, one `AudioWorkletNode`,
   and whatever the host connects downstream of `engine.output`.
 
+### What is browser-independent, and what isn't
+
+The package is not browser-free end to end, and it isn't meant to be — it targets Web Audio.
+The split is deliberate and worth knowing before you edit anything:
+
+| Browser-independent (plain TypeScript, runs under Node) | Browser-bound |
+| --- | --- |
+| the patch schema, `resolvePatch`/`validate`, `compilePatch`, graph ordering ([`engine/patch.ts`](../src/engine/patch.ts), [`diagnostics.ts`](../src/engine/diagnostics.ts), [`compile.ts`](../src/engine/compile.ts), [`graph.ts`](../src/engine/graph.ts)) | [`engine/session.ts`](../src/engine/session.ts) — `AudioContext`, `AudioWorkletNode`, `audioWorklet.addModule` |
+| the `Interpreter` and every module kernel ([`engine/interpreter.ts`](../src/engine/interpreter.ts), [`modules/`](../src/modules)) | [`worklet/`](../src/worklet) — `AudioWorkletProcessor`, `registerProcessor`, the `sampleRate` global |
+| param curves and unit constants ([`params.ts`](../src/engine/params.ts), [`units.ts`](../src/engine/units.ts)) | |
+
+That is what makes the numeric DSP tests possible: the compiler and the render loop can be
+driven directly from Vitest with no DOM, no `AudioContext`, and no mocking. Only the two
+plumbing layers need a browser (or, in `scripts/smoke.mjs`, stubbed worklet globals).
+
 Why a single worklet instead of a native node graph: modular patches are dense, cyclic, and
 re-patched live. A per-module `AudioNode` graph would make deterministic ordering, one-block
 feedback, and per-sample CV behaviour the browser's business rather than ours. Owning the
-inner loop means the same code renders identically under Vitest in Node and in the browser,
-which is what makes numeric DSP tests possible at all.
+inner loop means the same code renders identically under Vitest in Node and in the browser.
 
 ---
 
@@ -44,7 +58,7 @@ which is what makes numeric DSP tests possible at all.
 
 | Path | Responsibility |
 | --- | --- |
-| [`src/index.ts`](../src/index.ts) | **The public API surface.** The only file that defines what the package commits to supporting. Nothing else is public. |
+| [`src/index.ts`](../src/index.ts) | **The public TypeScript API.** The one file that defines the names the package commits to supporting; nothing else under `src/` is importable by consumers. (The package's other public artifact is `dist/worklet.js` — see [Build and delivery](#build-and-delivery).) |
 | [`src/engine/`](../src/engine) | Compiler and runtime internals: patch schema, resolution/diagnostics, graph ordering, the interpreter, param curves, unit constants, and the browser-facing `createEngine` session. |
 | [`src/modules/`](../src/modules) | DSP implementations — one kernel per file — plus [`registry.ts`](../src/modules/registry.ts) (the closed slug → kernel binding) and [`definitions.ts`](../src/modules/definitions.ts) (the kernel-free public projection of it). |
 | [`src/worklet/`](../src/worklet) | Browser plumbing: the `AudioWorkletProcessor` shell and the typed main-thread ↔ worklet message protocol. |
@@ -54,6 +68,12 @@ which is what makes numeric DSP tests possible at all.
 
 Public contracts live in `src/index.ts`. Compiler/runtime internals live in `src/engine/`.
 DSP lives in `src/modules/`. Browser plumbing lives in `src/worklet/`.
+
+The package has **two** public artifacts, both reached through the `exports` map in
+`package.json`: the TypeScript API (`dist/index.js` / `dist/index.d.ts`, built from
+`src/index.ts`) and the worklet bundle (`dist/worklet.js`, built from `src/worklet.ts`). The
+worklet is public in the sense that consumers may resolve and host its URL — its *contents*,
+and the message protocol it speaks, are internal and can change at any time.
 
 Two boundary tests keep those lines honest: [`src/boundary.test.ts`](../src/boundary.test.ts)
 (no host-application imports reach into the engine) and
@@ -78,15 +98,22 @@ the exported surface, so an accidental addition or removal fails CI.
 | `Engine` | [`engine/session.ts`](../src/engine/session.ts) | **public** | The browser runtime handle returned by `createEngine`: `output`, `load`, `setParam`, `start`, `stop`, `onSteps`, `dispose`. |
 | `ModuleDSP` | [`modules/registry.ts`](../src/modules/registry.ts) | *internal* | A registry entry: everything in `ModuleDefinition` **plus** the `kernel`. `ModuleDefinition` is this type with the kernel projected away. |
 | `Kernel<S>` | [`engine/kernel.ts`](../src/engine/kernel.ts) | *internal* | The DSP contract: `init(sr) → S` and `process(state, ins, outs, params, n)`. A **contributor** contract, not a plugin API. |
-| `Interpreter` | [`engine/interpreter.ts`](../src/engine/interpreter.ts) | *internal* | The pure, browser-free executor of one `EngineGraph`. Allocates in the constructor, renders in `runBlock`. |
+| `Interpreter` | [`engine/interpreter.ts`](../src/engine/interpreter.ts) | *internal* | The pure, browser-independent executor of one `EngineGraph`. Allocates in the constructor, renders in `runBlock`. |
 | `EngineProcessor` | [`worklet/engine.worklet.ts`](../src/worklet/engine.worklet.ts) | *internal* | The `AudioWorkletProcessor` that owns up to two `Interpreter`s and handles graph swaps, gain ramps and step telemetry. |
 | the registry | [`modules/registry.ts`](../src/modules/registry.ts) | *internal* | The closed `Map<slug, ModuleDSP>`. Consumers read it only through `getModuleDefinitions()` / `getModuleDefinition()`. |
 | the worklet protocol | [`worklet/protocol.ts`](../src/worklet/protocol.ts) | *internal* | The `postMessage` message types crossing the thread boundary. Types only — the module is fully erasable. |
 
-`src/index.ts` is authoritative. If a name is not exported there, it is internal and may
-change in a patch release. In particular: **`Kernel`, `ModuleDSP`, `Interpreter`, the registry
-and the worklet protocol are not public API.** Contributors can add built-in kernels to this
-repository; package consumers cannot register third-party kernels at runtime in v1.
+`src/index.ts` is authoritative for names. If a name is not exported there, it is internal and
+may change in a patch release. In particular: **`Kernel`, `ModuleDSP`, `Interpreter`, the
+registry and the worklet protocol are not public API.** Contributors can add built-in kernels
+to this repository; package consumers cannot register third-party kernels at runtime in v1.
+
+One consequence worth spelling out: `compilePatch` and `validate` take a
+`Map<string, ModuleDefinition>`, and the internal `registry` is *not* how a consumer supplies
+it. Build the map from the public projection instead —
+`new Map(getModuleDefinitions().map((d) => [d.slug, d]))` — as the
+[worked example below](#a-verified-example) does. (`engine.load(patch)` needs no map at all;
+it compiles against the built-in registry for you.)
 
 The package owns its module vocabulary — slugs, jack names, param names and their specs are
 defined by `registry.ts` and nothing else. PatchAtlas is a downstream consumer that must
@@ -211,6 +238,8 @@ vca.Out                → audio-output."L In"
 ```
 
 ```ts
+import { compilePatch, getModuleDefinitions, type Patch } from "patchatlas-audio";
+
 const patch: Patch = {
   modules: [
     { id: "osc", type: "oscillator" },
@@ -224,9 +253,15 @@ const patch: Patch = {
     { from: ["vca", "Out"], to: ["out", "L In"] },
   ],
 };
+
+// compilePatch and validate take a slug -> ModuleDefinition map. The internal
+// registry is not exported; build the map from the public projection instead.
+const definitions = new Map(
+  getModuleDefinitions().map((definition) => [definition.slug, definition]),
+);
 ```
 
-`compilePatch(patch, registry)` produces (abridged; `diagnostics` is empty):
+`compilePatch(patch, definitions)` produces (abridged; `diagnostics` is empty):
 
 ```jsonc
 {
