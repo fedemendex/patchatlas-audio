@@ -197,6 +197,12 @@ Two optional fields:
   its node index in `EngineGraph.outputNodes`. Only `audio-output` uses this.
 * `reportsStep: true` — the kernel's state carries a numeric `step` field that the interpreter
   reads for UI telemetry. It never affects audio. Only the sequencers use this.
+* `reportsGates: true` — the kernel's state carries a numeric `gates` bitmask (bit `k` set
+  while `outJacks[k]` is high) that the interpreter reads for a host's per-output indicator
+  LEDs. Same throttled channel shape as `reportsStep`, and likewise never affects audio; a
+  module reporting gates is responsible for holding a bit long enough to outlast the host's
+  poll interval, since telemetry is sampled at ~33 Hz and a trigger can be far shorter than
+  that. Limited to the low 31 bits. Only `clock-divider-2` uses this.
 * `limitations` — declares jacks/controls that exist in a host's UI but produce no audible
   effect in this engine, so a host can badge them. Every currently registered module is
   complete and omits this field; only add it if you are deliberately shipping a partial module.
@@ -263,8 +269,8 @@ Both of these assert exact counts and will fail until you update them:
   encodes a product decision (an untouched knob should sound closed, a switch should rest on
   a particular position), assert that too — several entries already do.
 * [`src/modules/definitions.test.ts`](../src/modules/definitions.test.ts) — bump the
-  definition count. If you set `audioOutput`, `reportsStep` or `limitations`, update the tests
-  that assert exactly which slugs carry each of those fields.
+  definition count. If you set `audioOutput`, `reportsStep`, `reportsGates` or `limitations`,
+  update the tests that assert exactly which slugs carry each of those fields.
 
 You should **not** need to touch [`src/index.ts`](../src/index.ts) or
 [`src/publicSurface.test.ts`](../src/publicSurface.test.ts). A new module changes the *data*

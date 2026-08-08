@@ -29,6 +29,7 @@ import { lfoKernel } from "./lfo";
 import { noiseSourceKernel } from "./noiseSource";
 import { sampleAndHoldKernel } from "./sampleAndHold";
 import { clockKernel } from "./clock";
+import { clockDivider2Kernel } from "./clockDivider2";
 import { sequencerKernel } from "./sequencer";
 import { triggerSequencerKernel } from "./triggerSequencer";
 import { ringModKernel } from "./ringMod";
@@ -60,6 +61,15 @@ export interface ModuleDSP {
   // Interpreter reports to the UI (sequencer current-step indicator). The
   // worklet forwards it on a throttled channel; it never affects DSP.
   reportsStep?: boolean;
+
+  // When true, the kernel's state carries a numeric `gates` bitmask — bit k
+  // set while outJacks[k] is high — that the Interpreter reports to the UI
+  // (per-output indicator LEDs). Forwarded on the same throttled channel
+  // shape as `reportsStep`, and likewise never affects DSP. A kernel that
+  // sets this is responsible for holding a bit long enough to survive the
+  // host's poll interval; see clockDivider2.ts's LED_HOLD_SECONDS. Limited to
+  // the low 31 bits, so a module may report at most 31 outputs.
+  reportsGates?: boolean;
 
   // Fidelity metadata for a deliberately partial module: names of jacks or
   // controls a host's panel shows but this engine does not render audibly, so
@@ -289,6 +299,38 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
         // (standard shuffle), − pushes it early. Applies to the internal clock;
         // external clock is passed through unswung.
         Swing: { min: -1, max: 1, default: 0, curve: "linear" },
+      },
+    },
+  ],
+  [
+    "clock-divider-2",
+    {
+      slug: "clock-divider-2",
+      kernel: clockDivider2Kernel,
+      reportsGates: true, // per-output high state surfaced to the panel's LEDs
+      // Fully previewed. A-160-2-style seven-output divider, always slaved to
+      // Clk (no internal tempo — that is "clock"'s job). Div picks the
+      // division-factor set, Mode picks divided gates vs clock-width triggers;
+      // Rst re-zeros every counter so the next edge is a shared downbeat. See
+      // clockDivider2.ts header and docs/signals.md.
+      inJacks: ["Clk", "Rst"],
+      outJacks: ["Out 1", "Out 2", "Out 3", "Out 4", "Out 5", "Out 6", "Out 7"],
+      params: {
+        // positions order IS the kernel's DIVISION_SETS table order.
+        Div: {
+          min: 0,
+          max: 2,
+          default: 0,
+          curve: "positions",
+          positions: ["Pow 2", "Prime", "Int"],
+        },
+        Mode: {
+          min: 0,
+          max: 1,
+          default: 0,
+          curve: "positions",
+          positions: ["Gate", "Trig"],
+        },
       },
     },
   ],

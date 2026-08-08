@@ -5,9 +5,9 @@ import { getModuleDefinition, getModuleDefinitions, isPlayable, type ModuleDefin
 describe("getModuleDefinitions", () => {
   const definitions = getModuleDefinitions();
 
-  it("returns exactly one definition per registered module (26)", () => {
-    expect(definitions).toHaveLength(26);
-    expect(new Set(definitions.map((d) => d.slug)).size).toBe(26);
+  it("returns exactly one definition per registered module (27)", () => {
+    expect(definitions).toHaveLength(27);
+    expect(new Set(definitions.map((d) => d.slug)).size).toBe(27);
   });
 
   it("carries no kernel reference or function value anywhere", () => {
@@ -41,6 +41,11 @@ describe("getModuleDefinitions", () => {
   it("carries reportsStep only for sequencer and trigger-sequencer", () => {
     const withStep = definitions.filter((d) => d.reportsStep).map((d) => d.slug).sort();
     expect(withStep).toEqual(["sequencer", "trigger-sequencer"]);
+  });
+
+  it("carries reportsGates only for clock-divider-2", () => {
+    const withGates = definitions.filter((d) => d.reportsGates).map((d) => d.slug).sort();
+    expect(withGates).toEqual(["clock-divider-2"]);
   });
 
   it("omits limitations for every currently fully-previewed module", () => {

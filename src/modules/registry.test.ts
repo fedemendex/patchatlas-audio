@@ -14,6 +14,7 @@ import { lfoKernel } from "./lfo";
 import { noiseSourceKernel } from "./noiseSource";
 import { sampleAndHoldKernel } from "./sampleAndHold";
 import { clockKernel } from "./clock";
+import { clockDivider2Kernel } from "./clockDivider2";
 import { sequencerKernel } from "./sequencer";
 import { triggerSequencerKernel } from "./triggerSequencer";
 import { ringModKernel } from "./ringMod";
@@ -34,8 +35,8 @@ import { comparatorKernel } from "./comparator";
 // host's catalog matching getModuleDefinitions() — is that host's test to own.
 
 describe("production registry", () => {
-  it("has exactly the twenty-six registered entries (size 26)", () => {
-    expect(registry.size).toBe(26);
+  it("has exactly the twenty-seven registered entries (size 27)", () => {
+    expect(registry.size).toBe(27);
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -51,6 +52,7 @@ describe("production registry", () => {
       "noise-source",
       "sample-and-hold",
       "clock",
+      "clock-divider-2",
       "sequencer",
       "trigger-sequencer",
       "ring-modulator",
@@ -127,6 +129,41 @@ describe("production registry", () => {
 
   it("clock entry uses the canonical clockKernel", () => {
     expect(registry.get("clock")?.kernel).toBe(clockKernel);
+  });
+
+  it("clock-divider-2 entry uses the canonical clockDivider2Kernel", () => {
+    expect(registry.get("clock-divider-2")?.kernel).toBe(clockDivider2Kernel);
+  });
+
+  it("clock-divider-2 has Clk/Rst inputs, seven numbered outputs and Div/Mode switches", () => {
+    const entry = registry.get("clock-divider-2");
+    expect(entry?.inJacks).toEqual(["Clk", "Rst"]);
+    expect(entry?.outJacks).toEqual(["Out 1", "Out 2", "Out 3", "Out 4", "Out 5", "Out 6", "Out 7"]);
+    expect(Object.keys(entry?.params ?? {})).toEqual(["Div", "Mode"]);
+  });
+
+  it("clock-divider-2 Div/Mode are position switches resting on Pow 2 and Gate", () => {
+    const entry = registry.get("clock-divider-2");
+    expect(entry?.params.Div).toEqual({
+      min: 0,
+      max: 2,
+      default: 0,
+      curve: "positions",
+      positions: ["Pow 2", "Prime", "Int"],
+    });
+    expect(entry?.params.Mode).toEqual({
+      min: 0,
+      max: 1,
+      default: 0,
+      curve: "positions",
+      positions: ["Gate", "Trig"],
+    });
+  });
+
+  it("clock-divider-2 is the only gate-reporting entry (panel LEDs)", () => {
+    const reporting: string[] = [];
+    for (const [slug, dsp] of registry) if (dsp.reportsGates) reporting.push(slug);
+    expect(reporting).toEqual(["clock-divider-2"]);
   });
 
   it("sequencer entry uses the canonical sequencerKernel", () => {
@@ -303,7 +340,7 @@ describe("isPlayable", () => {
     expect(isPlayable(null)).toBe(false);
   });
 
-  it("returns true for all twenty-six registered playable slugs", () => {
+  it("returns true for all twenty-seven registered playable slugs", () => {
     for (const slug of [
       "audio-output",
       "oscillator",
@@ -319,6 +356,7 @@ describe("isPlayable", () => {
       "noise-source",
       "sample-and-hold",
       "clock",
+      "clock-divider-2",
       "sequencer",
       "trigger-sequencer",
       "ring-modulator",

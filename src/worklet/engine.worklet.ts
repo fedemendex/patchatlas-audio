@@ -33,20 +33,36 @@ declare function registerProcessor(
 /** Fade-out/fade-in length for graph swaps. Host plumbing, not signal tuning. */
 const GRAPH_FADE_SECONDS = 0.03;
 
-/** How often the worklet reports sequencer steps to the UI (~33 Hz). */
-const STEP_REPORT_SECONDS = 0.03;
+/** How often the worklet reports UI telemetry (steps, gates) to the host (~33 Hz). */
+const TELEMETRY_REPORT_SECONDS = 0.03;
 
-/** Per-interpreter step-reporting scratch: reused buffers, no per-block alloc. */
-interface StepConfig {
+/**
+ * Per-interpreter telemetry scratch, one per channel: reused buffers, no
+ * per-block alloc. `last` starts at -1, which is not a valid step index nor a
+ * valid gate bitmask, so the first read of either channel always counts as a
+ * change and posts an initial value.
+ */
+interface TelemetryConfig {
   ids: string[];
-  buf: Int32Array; // current steps, filled by readSteps
-  last: Int32Array; // last posted steps, for change detection
+  buf: Int32Array; // current values, filled by readSteps/readGates
+  last: Int32Array; // last posted values, for change detection
 }
 
-function makeStepConfig(interp: Interpreter): StepConfig | null {
-  const ids = interp.stepReportIds;
+function makeTelemetryConfig(ids: string[]): TelemetryConfig | null {
   if (ids.length === 0) return null;
   return { ids, buf: new Int32Array(ids.length), last: new Int32Array(ids.length).fill(-1) };
+}
+
+/** Whether any value changed since the last post; updates `last` in place. */
+function telemetryChanged(cfg: TelemetryConfig): boolean {
+  let changed = false;
+  for (let k = 0; k < cfg.buf.length; k++) {
+    if (cfg.buf[k] !== cfg.last[k]) {
+      cfg.last[k] = cfg.buf[k];
+      changed = true;
+    }
+  }
+  return changed;
 }
 
 class EngineProcessor extends AudioWorkletProcessor {
@@ -58,21 +74,26 @@ class EngineProcessor extends AudioWorkletProcessor {
   private readonly left: Float32Array;
   private readonly right: Float32Array;
 
-  // Step-reporting: current/pending configs track their interpreter through
-  // the swap; the message object is reused (postMessage structured-clones it).
-  private currentSteps: StepConfig | null = null;
-  private pendingSteps: StepConfig | null = null;
-  private stepPostSamples = 0;
-  private readonly stepPostInterval: number;
+  // Telemetry: current/pending configs track their interpreter through the
+  // swap; both channels share one throttle counter so they post on the same
+  // tick. The message objects are reused (postMessage structured-clones them).
+  private currentSteps: TelemetryConfig | null = null;
+  private pendingSteps: TelemetryConfig | null = null;
+  private currentGates: TelemetryConfig | null = null;
+  private pendingGates: TelemetryConfig | null = null;
+  private telemetryPostSamples = 0;
+  private readonly telemetryPostInterval: number;
   private readonly stepMsg: EngineHostMessage;
+  private readonly gateMsg: EngineHostMessage;
 
   constructor() {
     super();
     this.gainStep = 1 / (sampleRate * GRAPH_FADE_SECONDS);
     this.left = new Float32Array(BLOCK_FRAMES);
     this.right = new Float32Array(BLOCK_FRAMES);
-    this.stepPostInterval = Math.max(1, Math.round(sampleRate * STEP_REPORT_SECONDS));
+    this.telemetryPostInterval = Math.max(1, Math.round(sampleRate * TELEMETRY_REPORT_SECONDS));
     this.stepMsg = { type: "steps", ids: [], steps: new Int32Array(0) };
+    this.gateMsg = { type: "gates", ids: [], gates: new Int32Array(0) };
     this.port.onmessage = (e: MessageEvent<EngineWorkletMessage>) => {
       const msg = e.data;
       if (msg.type === "graph") {
@@ -84,6 +105,8 @@ class EngineProcessor extends AudioWorkletProcessor {
         this.pending = null;
         this.currentSteps = null;
         this.pendingSteps = null;
+        this.currentGates = null;
+        this.pendingGates = null;
         this.gain = 0;
       } else if (msg.type === "param") {
         // Route to both: `current` keeps sounding right until the swap, and a
@@ -107,12 +130,14 @@ class EngineProcessor extends AudioWorkletProcessor {
     }
     if (this.current === null) {
       this.current = interpreter;
-      this.currentSteps = makeStepConfig(interpreter);
-      this.stepPostSamples = 0;
+      this.currentSteps = makeTelemetryConfig(interpreter.stepReportIds);
+      this.currentGates = makeTelemetryConfig(interpreter.gateReportIds);
+      this.telemetryPostSamples = 0;
       this.gain = 0; // fade in from silence
     } else {
       this.pending = interpreter; // fade out, then swap in process()
-      this.pendingSteps = makeStepConfig(interpreter);
+      this.pendingSteps = makeTelemetryConfig(interpreter.stepReportIds);
+      this.pendingGates = makeTelemetryConfig(interpreter.gateReportIds);
     }
   }
 
@@ -177,41 +202,53 @@ class EngineProcessor extends AudioWorkletProcessor {
       this.pending = null;
       this.currentSteps = this.pendingSteps;
       this.pendingSteps = null;
-      this.stepPostSamples = 0;
+      this.currentGates = this.pendingGates;
+      this.pendingGates = null;
+      this.telemetryPostSamples = 0;
     }
 
-    // Throttled sequencer-step telemetry: read the current steps and post only
-    // when one changed. Allocation-free — the message object and its buffers
-    // are reused; postMessage structured-clones them. `interp` is re-read from
-    // this.current AFTER the swap above so it and cfg are the same generation.
-    const cfg = this.currentSteps;
+    // Throttled UI telemetry: read each channel and post only when a value
+    // changed. Allocation-free — the message objects and their buffers are
+    // reused; postMessage structured-clones them. `interp` is re-read from
+    // this.current AFTER the swap above so it and the configs are the same
+    // generation. One counter drives both channels, so a graph carrying both
+    // a sequencer and a divider posts them on the same tick.
+    const stepCfg = this.currentSteps;
+    const gateCfg = this.currentGates;
     const interp = this.current;
-    if (cfg !== null && interp !== null) {
-      this.stepPostSamples += n;
-      if (this.stepPostSamples >= this.stepPostInterval) {
-        this.stepPostSamples = 0;
-        interp.readSteps(cfg.buf);
-        let changed = false;
-        for (let k = 0; k < cfg.buf.length; k++) {
-          if (cfg.buf[k] !== cfg.last[k]) {
-            cfg.last[k] = cfg.buf[k];
-            changed = true;
+    if (interp !== null && (stepCfg !== null || gateCfg !== null)) {
+      this.telemetryPostSamples += n;
+      if (this.telemetryPostSamples >= this.telemetryPostInterval) {
+        this.telemetryPostSamples = 0;
+        if (stepCfg !== null) {
+          interp.readSteps(stepCfg.buf);
+          if (telemetryChanged(stepCfg)) {
+            this.stepMsg.ids = stepCfg.ids;
+            (this.stepMsg as { steps: Int32Array }).steps = stepCfg.buf;
+            this.postTelemetry(this.stepMsg);
           }
         }
-        if (changed) {
-          this.stepMsg.ids = cfg.ids;
-          this.stepMsg.steps = cfg.buf;
-          // Telemetry is best-effort: a failed post must never stop audio.
-          try {
-            this.port.postMessage(this.stepMsg);
-          } catch {
-            // swallow — the next change will try again
+        if (gateCfg !== null) {
+          interp.readGates(gateCfg.buf);
+          if (telemetryChanged(gateCfg)) {
+            this.gateMsg.ids = gateCfg.ids;
+            (this.gateMsg as { gates: Int32Array }).gates = gateCfg.buf;
+            this.postTelemetry(this.gateMsg);
           }
         }
       }
     }
 
     return true;
+  }
+
+  /** Telemetry is best-effort: a failed post must never stop audio. */
+  private postTelemetry(msg: EngineHostMessage): void {
+    try {
+      this.port.postMessage(msg);
+    } catch {
+      // swallow — the next change will try again
+    }
   }
 }
 

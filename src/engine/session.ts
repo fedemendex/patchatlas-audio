@@ -43,6 +43,16 @@ export interface Engine {
   start(): void;
   stop(): void;
   onSteps(cb: (steps: Record<string, number>) => void): () => void;
+  /**
+   * Subscribes to per-output gate telemetry from gate-reporting modules
+   * (currently `clock-divider-2`), for driving panel indicator LEDs. Each
+   * value is a bitmask over that module's `outJacks`: bit k is set while
+   * outJacks[k] is high. Throttled to ~33 Hz and posted only on change; a
+   * module holds a bit briefly so pulses shorter than the poll interval are
+   * still delivered. Never a substitute for reading audio — it is an
+   * indicator path only.
+   */
+  onGates(cb: (gates: Record<string, number>) => void): () => void;
   dispose(): void;
 }
 
@@ -75,16 +85,24 @@ export async function createEngine(
 
   const node = new AudioWorkletNode(context, "engine-processor");
   const stepSubscribers = new Set<(steps: Record<string, number>) => void>();
+  const gateSubscribers = new Set<(gates: Record<string, number>) => void>();
   let lastGraph: EngineGraph | null = null;
   let started = false;
   let disposed = false;
 
   node.port.onmessage = (e: MessageEvent<EngineHostMessage>) => {
     const msg = e.data;
-    if (msg?.type !== "steps" || !msg.ids || !msg.steps) return;
-    const steps: Record<string, number> = {};
-    for (let i = 0; i < msg.ids.length; i++) steps[msg.ids[i]] = msg.steps[i];
-    for (const cb of stepSubscribers) cb(steps);
+    if (msg?.type === "steps") {
+      if (!msg.ids || !msg.steps) return;
+      const steps: Record<string, number> = {};
+      for (let i = 0; i < msg.ids.length; i++) steps[msg.ids[i]] = msg.steps[i];
+      for (const cb of stepSubscribers) cb(steps);
+    } else if (msg?.type === "gates") {
+      if (!msg.ids || !msg.gates) return;
+      const gates: Record<string, number> = {};
+      for (let i = 0; i < msg.ids.length; i++) gates[msg.ids[i]] = msg.gates[i];
+      for (const cb of gateSubscribers) cb(gates);
+    }
   };
 
   function post(message: EngineWorkletMessage): void {
@@ -142,11 +160,18 @@ export async function createEngine(
       return () => stepSubscribers.delete(cb);
     },
 
+    onGates(cb: (gates: Record<string, number>) => void): () => void {
+      assertNotDisposed();
+      gateSubscribers.add(cb);
+      return () => gateSubscribers.delete(cb);
+    },
+
     dispose(): void {
       if (disposed) return;
       disposed = true;
       node.port.onmessage = null;
       stepSubscribers.clear();
+      gateSubscribers.clear();
       node.disconnect();
     },
   };

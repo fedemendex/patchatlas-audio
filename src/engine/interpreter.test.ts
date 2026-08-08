@@ -53,8 +53,34 @@ const dcKernel: Kernel<null> = {
   },
 };
 
+/**
+ * Reports a `gates` bitmask that advances one block at a time, so a test can
+ * tell a real readGates call apart from a fixed value. Outputs silence.
+ */
+const gateReporterKernel: Kernel<{ gates: number }> = {
+  init: () => ({ gates: 0 }),
+  process(state, _ins, outs, _params, n) {
+    for (let c = 0; c < outs.length; c++) {
+      const out = outs[c];
+      for (let i = 0; i < n; i++) out[i] = 0;
+    }
+    state.gates += 1;
+  },
+};
+
 const fixtureRegistry = new Map<string, ModuleDSP>([
   ...testRegistry,
+  [
+    "toy-gates",
+    {
+      slug: "toy-gates",
+      kernel: gateReporterKernel,
+      inJacks: [],
+      outJacks: ["A", "B"],
+      params: {},
+      reportsGates: true,
+    },
+  ],
   [
     "toy-tap",
     {
@@ -686,5 +712,68 @@ describe("Interpreter", () => {
     expect(allFinite).toBe(true);
     expect(peak).toBeGreaterThan(1); // actually producing audio
     expect(peak).toBeLessThanOrEqual(10.001); // geometric series bound
+  });
+});
+
+describe("Interpreter — gate telemetry (readGates)", () => {
+  it("exposes only reportsGates nodes, in graph order", () => {
+    const interp = new Interpreter(
+      graphOf([
+        { id: "dc", slug: "toy-dc" },
+        { id: "div-a", slug: "toy-gates" },
+        { id: "div-b", slug: "toy-gates" },
+      ]),
+      fixtureRegistry,
+      SR,
+    );
+
+    expect(interp.gateReportIds).toEqual(["div-a", "div-b"]);
+  });
+
+  it("is empty for a graph with no gate-reporting node", () => {
+    const interp = new Interpreter(graphOf([{ id: "dc", slug: "toy-dc" }]), fixtureRegistry, SR);
+    expect(interp.gateReportIds).toEqual([]);
+  });
+
+  it("writes each node's live gates bitmask into the caller's buffer", () => {
+    const interp = new Interpreter(
+      graphOf([
+        { id: "div-a", slug: "toy-gates" },
+        { id: "div-b", slug: "toy-gates" },
+      ]),
+      fixtureRegistry,
+      SR,
+    );
+
+    const out = new Int32Array(interp.gateReportIds.length);
+    interp.readGates(out);
+    expect([...out]).toEqual([0, 0]);
+
+    interp.runBlock(BLOCK_FRAMES);
+    interp.readGates(out);
+    expect([...out]).toEqual([1, 1]);
+
+    interp.runBlock(BLOCK_FRAMES);
+    interp.runBlock(BLOCK_FRAMES);
+    interp.readGates(out);
+    expect([...out]).toEqual([3, 3]);
+  });
+
+  it("does not allocate a fresh buffer — it fills the one it is given", () => {
+    const interp = new Interpreter(graphOf([{ id: "div", slug: "toy-gates" }]), fixtureRegistry, SR);
+    const out = new Int32Array(1);
+    interp.runBlock(BLOCK_FRAMES);
+    interp.readGates(out);
+    const same = out;
+    interp.runBlock(BLOCK_FRAMES);
+    interp.readGates(out);
+    expect(out).toBe(same);
+    expect(out[0]).toBe(2);
+  });
+
+  it("keeps the step and gate channels independent", () => {
+    const interp = new Interpreter(graphOf([{ id: "div", slug: "toy-gates" }]), fixtureRegistry, SR);
+    expect(interp.stepReportIds).toEqual([]);
+    expect(interp.gateReportIds).toEqual(["div"]);
   });
 });

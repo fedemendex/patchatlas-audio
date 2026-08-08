@@ -74,6 +74,37 @@ function clockSequencerGraph(): EngineGraph {
   };
 }
 
+// clock.Clk → clock-divider-2.Clk; no audio output. The divider's params are
+// [Div, Mode]; the first clock edge is a downbeat on all seven outputs, so the
+// reported bitmask is 0b1111111.
+function clockDividerGraph(): EngineGraph {
+  return {
+    nodes: [
+      { instanceId: "clk", slug: "clock", params: [120] },
+      { instanceId: "div", slug: "clock-divider-2", params: [0, 0] },
+    ],
+    edges: [{ from: [0, 0], to: [1, 0], feedback: false }],
+    outputNodes: [],
+  };
+}
+
+// A sequencer and a divider on one clock, so both telemetry channels are live
+// in the same graph.
+function clockSequencerDividerGraph(): EngineGraph {
+  return {
+    nodes: [
+      { instanceId: "clk", slug: "clock", params: [120] },
+      { instanceId: "seq", slug: "sequencer", params: [8, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1] },
+      { instanceId: "div", slug: "clock-divider-2", params: [0, 0] },
+    ],
+    edges: [
+      { from: [0, 0], to: [1, 0], feedback: false },
+      { from: [0, 0], to: [2, 0], feedback: false },
+    ],
+    outputNodes: [],
+  };
+}
+
 let proc: ProcessorLike;
 let left: Float32Array;
 let right: Float32Array;
@@ -197,6 +228,74 @@ describe("engine worklet processor", () => {
     expect(posted.length).toBeGreaterThanOrEqual(1);
     expect(posted[0].ids).toEqual(["seq"]);
     expect(posted[0].steps).toEqual([0]); // step 0 latched on the downbeat
+  });
+
+  it("posts throttled, instanceId-keyed gate telemetry on its own channel", () => {
+    const posted: { type: string; ids: string[]; gates: number[] }[] = [];
+    proc.port.postMessage = (m) => {
+      const msg = m as { type: string; ids: string[]; gates: Int32Array };
+      if (msg.type !== "gates") return;
+      // Snapshot: the worklet reuses the message object and its buffers.
+      posted.push({ type: msg.type, ids: [...msg.ids], gates: [...msg.gates] });
+    };
+    send({ type: "graph", graph: clockDividerGraph() });
+
+    runBlocks(15); // past the ~12-block report interval
+
+    expect(posted.length).toBeGreaterThanOrEqual(1);
+    expect(posted[0].ids).toEqual(["div"]);
+    // Downbeat: all seven outputs high → every bit set.
+    expect(posted[0].gates).toEqual([0b1111111]);
+  });
+
+  it("posts steps and gates as separate messages when a graph has both", () => {
+    const types: string[] = [];
+    proc.port.postMessage = (m) => {
+      types.push((m as { type: string }).type);
+    };
+    send({ type: "graph", graph: clockSequencerDividerGraph() });
+
+    runBlocks(15);
+
+    expect(types).toContain("steps");
+    expect(types).toContain("gates");
+  });
+
+  it("posts no gate telemetry for a graph with no gate-reporting node", () => {
+    const types: string[] = [];
+    proc.port.postMessage = (m) => {
+      types.push((m as { type: string }).type);
+    };
+    send({ type: "graph", graph: clockSequencerGraph() });
+
+    runBlocks(15);
+
+    expect(types).toContain("steps");
+    expect(types).not.toContain("gates");
+  });
+
+  it("stops posting gate telemetry after a stop message", () => {
+    send({ type: "graph", graph: clockDividerGraph() });
+    runBlocks(15);
+
+    send({ type: "stop" });
+    const after: string[] = [];
+    proc.port.postMessage = (m) => {
+      after.push((m as { type: string }).type);
+    };
+    runBlocks(30);
+
+    expect(after).not.toContain("gates");
+  });
+
+  it("keeps rendering audio when a gate postMessage throws", () => {
+    proc.port.postMessage = () => {
+      throw new Error("port closed");
+    };
+    send({ type: "graph", graph: clockDividerGraph() });
+    for (let b = 0; b < 20; b++) {
+      expect(proc.process([], [[left, right]], {})).toBe(true);
+    }
   });
 
   it("keeps rendering audio when a step postMessage throws", () => {

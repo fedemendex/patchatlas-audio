@@ -51,7 +51,7 @@ test("built playground plays audible audio from the default preset", async ({ pa
   page.on("pageerror", (err) => pageErrors.push(err));
 
   await page.goto("/");
-  await expect(page.locator("#preset-select option")).toHaveCount(4);
+  await expect(page.locator("#preset-select option")).toHaveCount(5);
 
   const startButton = page.locator("#start-btn");
   await expect(startButton).toBeEnabled();
@@ -79,7 +79,7 @@ test("built playground plays audible audio from the default preset", async ({ pa
 
 test("every bundled preset loads, sounds, and reports its diagnostics", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator("#preset-select option")).toHaveCount(4);
+  await expect(page.locator("#preset-select option")).toHaveCount(5);
   await page.locator("#start-btn").click();
 
   const ids = await page.locator("#preset-select option").evaluateAll((opts) =>
@@ -101,7 +101,7 @@ test("Start/Stop lifecycle: repeated Start is inert while running, Stop then Sta
   page.on("pageerror", (err) => pageErrors.push(err));
 
   await page.goto("/");
-  await expect(page.locator("#preset-select option")).toHaveCount(4);
+  await expect(page.locator("#preset-select option")).toHaveCount(5);
 
   const startButton = page.locator("#start-btn");
   const stopButton = page.locator("#stop-btn");

@@ -27,10 +27,21 @@ export type EngineWorkletMessage =
       type: "stop";
     };
 
-// Worklet → host. Throttled UI telemetry; carries the live current step of
-// every step-reporting node (sequencers), aligned by index with `ids`.
-export type EngineHostMessage = {
-  type: "steps";
-  ids: string[];
-  steps: Int32Array;
-};
+// Worklet → host. Throttled UI telemetry, posted only when a value changed.
+// Both variants align their value array with `ids` by index.
+export type EngineHostMessage =
+  | {
+      /** Live current step of every step-reporting node (sequencers). */
+      type: "steps";
+      ids: string[];
+      steps: Int32Array;
+    }
+  | {
+      /**
+       * Live output bitmask of every gate-reporting node (clock-divider-2):
+       * bit k set while that node's outJacks[k] is high. Drives panel LEDs.
+       */
+      type: "gates";
+      ids: string[];
+      gates: Int32Array;
+    };

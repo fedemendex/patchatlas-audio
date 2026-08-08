@@ -355,6 +355,36 @@ uses no wall-clock timer anywhere in the audio path.
     to the internal BPM clock only; the external clock is passed through sample-accurately and used
     as the parent tick source** (offbeats are not re-timed). Unpatched `Ext Clk` leaves the
     internal-tempo clock exactly as above.
+- **Clock Divider 2** (`clock-divider-2`): a seven-output clock/trigger divider with **no
+  internal tempo source** — it is always slaved to `Clk`, whose rising edges (standard Schmitt
+  thresholds) are counted; a sustained-high input fires once until it re-arms, and non-finite
+  samples hold the latch and never fire. Every output is derived by counting those edges, never
+  by an independent timer, so each output is sample-aligned with the edge that caused it.
+  - **`Div`** (3-position switch, default `Pow 2`) selects the division-factor set applied to
+    `Out 1 … Out 7` in order: `Pow 2` → 2, 4, 8, 16, 32, 64, 128; `Prime` → 2, 3, 5, 7, 11, 13,
+    17; `Int` → 2, 3, 4, 5, 6, 7, 8. Changing `Div` mid-cycle re-bases any counter that now sits
+    past the end of its new, shorter cycle (that output restarts on the next edge).
+  - **`Mode`** (2-position switch, default `Gate`) selects the output shape. In `Gate`, an
+    output is a ~50% duty square at the divided rate: within a cycle of `N` clock periods it is
+    high for the first `ceil(N/2)` periods and low for the rest, so `N` = 2 is exactly a binary
+    /2 square and odd divisors round the high half up. The level is decided on an edge and
+    **held** until the next one, so it does not follow the clock's own pulse width. In `Trig`,
+    the output is the divided cycle AND-ed with `Clk`: high only while `Clk` itself is high and
+    only during the **first** clock period of each cycle — one pulse per cycle, the same width
+    as the incoming clock pulse. Both levels are tracked every sample regardless of the selected
+    mode, so flipping `Mode` mid-stream takes effect immediately without a glitch.
+  - **`Rst`** (rising edge) returns the module to its power-on state: every division counter to
+    0 and every output immediately low. The next `Clk` rising edge is then a downbeat on all
+    seven outputs at once. `Rst` is evaluated before the `Clk` edge within a sample, so a
+    simultaneous `Rst` + `Clk` edge resets and then fires the downbeat — the same convention as
+    `clock`. Unpatched `Clk` means no edges ever arrive and the outputs hold their power-on (or
+    post-reset) low level.
+  - **Indicator telemetry.** This is the one module that sets `reportsGates`, publishing a
+    bitmask of which outputs are currently high (bit `k` = `outJacks[k]`) for a host's panel
+    LEDs. A bit is held set for a short fixed time after its output goes high so that a
+    `Trig`-mode pulse shorter than the host's ~33 Hz poll interval is still delivered. This is
+    a UI-visibility affordance computed from, and with no effect on, the audio written to the
+    output jacks.
 - **Sequencer** (`sequencer`): advances one step per `Clk` rising edge (standard Schmitt
   thresholds); the first edge after init/reset latches step 0 (never an off-by-one to step 1),
   unless `Sel` is patched (see below). Step CV comes from the stored `CV 1..8` controls, each

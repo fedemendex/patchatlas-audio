@@ -91,11 +91,11 @@ the exported surface, so an accidental addition or removal fails CI.
 | `Patch` | [`engine/patch.ts`](../src/engine/patch.ts) | **public** | The input format: plain, name-addressed JSON. `{ modules, connections }`. |
 | `PatchModule` | `engine/patch.ts` | **public** | One module instance: caller-chosen `id`, registry `type` slug, optional `params` in engine units. |
 | `PatchConnection` | `engine/patch.ts` | **public** | One cable: `from: [moduleId, outJackName]`, `to: [moduleId, inJackName]`. Direction is implied by position, not stored as a flag. |
-| `ModuleDefinition` | [`modules/definitions.ts`](../src/modules/definitions.ts) | **public** | The kernel-free description of a module: `slug`, `inJacks`, `outJacks`, `params`, and optional `audioOutput` / `reportsStep` / `limitations`. What a UI needs to draw a panel. |
+| `ModuleDefinition` | [`modules/definitions.ts`](../src/modules/definitions.ts) | **public** | The kernel-free description of a module: `slug`, `inJacks`, `outJacks`, `params`, and optional `audioOutput` / `reportsStep` / `reportsGates` / `limitations`. What a UI needs to draw a panel. |
 | `ParamSpec` | [`engine/kernel.ts`](../src/engine/kernel.ts) | **public** | One control's `min`/`max`/`default`/`curve` (+ `positions` for switches). |
 | `EngineGraph` | [`engine/graph.ts`](../src/engine/graph.ts) | **public** | The compiled form: nodes in deterministic processing order, numeric `[nodeIndex, slot]` edges, and the indices of audio-output nodes. |
 | `Diagnostic` | [`engine/diagnostics.ts`](../src/engine/diagnostics.ts) | **public** | A structured, machine-readable report of something the compiler dropped or flagged. |
-| `Engine` | [`engine/session.ts`](../src/engine/session.ts) | **public** | The browser runtime handle returned by `createEngine`: `output`, `load`, `setParam`, `start`, `stop`, `onSteps`, `dispose`. |
+| `Engine` | [`engine/session.ts`](../src/engine/session.ts) | **public** | The browser runtime handle returned by `createEngine`: `output`, `load`, `setParam`, `start`, `stop`, `onSteps`, `onGates`, `dispose`. |
 | `ModuleDSP` | [`modules/registry.ts`](../src/modules/registry.ts) | *internal* | A registry entry: everything in `ModuleDefinition` **plus** the `kernel`. `ModuleDefinition` is this type with the kernel projected away. |
 | `Kernel<S>` | [`engine/kernel.ts`](../src/engine/kernel.ts) | *internal* | The DSP contract: `init(sr) → S` and `process(state, ins, outs, params, n)`. A **contributor** contract, not a plugin API. |
 | `Interpreter` | [`engine/interpreter.ts`](../src/engine/interpreter.ts) | *internal* | The pure, browser-independent executor of one `EngineGraph`. Allocates in the constructor, renders in `runBlock`. |
@@ -425,14 +425,21 @@ A malformed graph never kills the processor: `Interpreter` construction is wrapp
 throw leaves the current graph playing. The shared registry and the compiler make that
 unreachable in practice.
 
-### Step telemetry
+### UI telemetry
 
-Modules whose `ModuleDSP` sets `reportsStep` (sequencers) expose a numeric `step` field on
-their kernel state. The worklet reads it on a throttled (~33 Hz) tick and posts it **only when
-it changed**, reusing the same message object and the same `Int32Array` every time — no
-per-block allocation. `engine.onSteps(cb)` turns that into a
-`Record<instanceId, step>` for a UI step indicator. It never affects audio, and a failed post
-is swallowed: telemetry must never stop the renderer.
+Two channels of the same shape carry indicator state from the audio thread to the UI. Both are
+read on one shared, throttled (~33 Hz) tick and posted **only when a value changed**, reusing
+the same message object and the same `Int32Array` every time — no per-block allocation. Neither
+affects audio, and a failed post is swallowed: telemetry must never stop the renderer.
+
+| Channel | Flag | Kernel state | Host API | Value |
+| --- | --- | --- | --- | --- |
+| Steps | `reportsStep` | numeric `step` | `engine.onSteps(cb)` | `Record<instanceId, step>` — the sequencers' current step |
+| Gates | `reportsGates` | numeric `gates` | `engine.onGates(cb)` | `Record<instanceId, bitmask>` — bit `k` set while `outJacks[k]` is high, for panel LEDs |
+
+Because the poll interval is far longer than a trigger pulse, a gate-reporting kernel holds
+each bit set for a short time after its output goes high, so a pulse landing between two polls
+is still delivered (see `clock-divider-2`).
 
 ### Disposal
 

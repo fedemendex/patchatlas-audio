@@ -47,6 +47,12 @@ function emitSteps(node: MockAudioWorkletNode, ids: string[], steps: number[]): 
   } as unknown as MessageEvent);
 }
 
+function emitGates(node: MockAudioWorkletNode, ids: string[], gates: number[]): void {
+  node.port.onmessage!({
+    data: { type: "gates", ids, gates: Int32Array.from(gates) },
+  } as unknown as MessageEvent);
+}
+
 describe("createEngine", () => {
   beforeEach(() => {
     MockAudioWorkletNode.instances = [];
@@ -209,6 +215,60 @@ describe("createEngine", () => {
     emitSteps(node, ["seq"], [3]);
     expect(a).toHaveBeenCalledTimes(2);
     expect(b).toHaveBeenCalledTimes(1); // unsubscribed — no second call
+  });
+
+  it("onGates fans worklet gate telemetry out to every subscriber and supports unsubscribe", async () => {
+    const ctx = new MockAudioContext();
+    const engine = await createEngine(ctx as unknown as AudioContext);
+    const node = MockAudioWorkletNode.instances[0];
+
+    const a = vi.fn();
+    const b = vi.fn();
+    engine.onGates(a);
+    const unsubB = engine.onGates(b);
+
+    emitGates(node, ["div"], [0b1010101]);
+    expect(a).toHaveBeenCalledWith({ div: 0b1010101 });
+    expect(b).toHaveBeenCalledWith({ div: 0b1010101 });
+
+    unsubB();
+    emitGates(node, ["div"], [0b0000001]);
+    expect(a).toHaveBeenCalledTimes(2);
+    expect(b).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes steps and gates to their own subscribers only", async () => {
+    const ctx = new MockAudioContext();
+    const engine = await createEngine(ctx as unknown as AudioContext);
+    const node = MockAudioWorkletNode.instances[0];
+
+    const steps = vi.fn();
+    const gates = vi.fn();
+    engine.onSteps(steps);
+    engine.onGates(gates);
+
+    emitSteps(node, ["seq"], [3]);
+    expect(steps).toHaveBeenCalledWith({ seq: 3 });
+    expect(gates).not.toHaveBeenCalled();
+
+    emitGates(node, ["div"], [0b11]);
+    expect(gates).toHaveBeenCalledWith({ div: 0b11 });
+    expect(steps).toHaveBeenCalledTimes(1);
+  });
+
+  it("onGates throws after dispose, and dispose drops gate subscribers", async () => {
+    const ctx = new MockAudioContext();
+    const engine = await createEngine(ctx as unknown as AudioContext);
+    const node = MockAudioWorkletNode.instances[0];
+
+    const cb = vi.fn();
+    engine.onGates(cb);
+    engine.dispose();
+
+    expect(() => engine.onGates(() => {})).toThrow();
+    // The port handler is detached, so nothing can reach a stale subscriber.
+    expect(node.port.onmessage).toBeNull();
+    expect(cb).not.toHaveBeenCalled();
   });
 
   it("two engines on one context share one worklet load but never cross-talk", async () => {

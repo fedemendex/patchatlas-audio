@@ -97,6 +97,33 @@ const feedback: Patch = {
   ],
 };
 
+// clock-divider-2 on its Prime set, in Trig mode: two voices clocked from /2
+// and /5 of the same clock drift in and out of phase over a 10-tick cycle.
+const polyrhythm: Patch = {
+  modules: [
+    { id: "clk", type: "clock", params: { Tempo: 240 } },
+    { id: "div", type: "clock-divider-2", params: { Div: 1, Mode: 1 } },
+    { id: "eg-a", type: "envelope-generator", params: { A: 0.001, D: 0.12, S: 0, R: 0.12 } },
+    { id: "eg-b", type: "envelope-generator", params: { A: 0.001, D: 0.3, S: 0, R: 0.3 } },
+    { id: "osc-a", type: "oscillator" },
+    { id: "osc-b", type: "oscillator", params: { Tune: -1 } },
+    { id: "lpg-a", type: "low-pass-gate" },
+    { id: "lpg-b", type: "low-pass-gate" },
+    { id: "out", type: "audio-output", params: { Level: 0.5 } },
+  ],
+  connections: [
+    { from: ["clk", "Clk"], to: ["div", "Clk"] },
+    { from: ["div", "Out 1"], to: ["eg-a", "Gate"] }, // /2 on the Prime set
+    { from: ["div", "Out 3"], to: ["eg-b", "Gate"] }, // /5 on the Prime set
+    { from: ["osc-a", "Saw"], to: ["lpg-a", "In"] },
+    { from: ["eg-a", "Env"], to: ["lpg-a", "CV"] },
+    { from: ["osc-b", "Saw"], to: ["lpg-b", "In"] },
+    { from: ["eg-b", "Env"], to: ["lpg-b", "CV"] },
+    { from: ["lpg-a", "Out"], to: ["out", "L In"] },
+    { from: ["lpg-b", "Out"], to: ["out", "R In"] },
+  ],
+};
+
 export const PRESETS: Preset[] = [
   {
     id: "krell",
@@ -115,6 +142,12 @@ export const PRESETS: Preset[] = [
     title: "FM pair",
     description: "One oscillator's sine output frequency-modulates a second oscillator one octave below, a minimal two-operator FM patch.",
     patch: fm,
+  },
+  {
+    id: "polyrhythm",
+    title: "Prime polyrhythm",
+    description: "One clock feeding a seven-output divider on its prime set: two plucked voices triggered from /2 and /5 drift in and out of phase across a ten-tick cycle.",
+    patch: polyrhythm,
   },
   {
     id: "feedback",

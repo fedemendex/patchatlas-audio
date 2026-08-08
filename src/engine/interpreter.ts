@@ -61,6 +61,11 @@ export class Interpreter {
   readonly stepReportIds: string[];
   private readonly stepReportNodeIndices: Int32Array;
 
+  // Gate-reporting nodes (dsp.reportsGates): the same parallel-array shape as
+  // the step channel above, driving per-output indicator LEDs. Also UI-only.
+  readonly gateReportIds: string[];
+  private readonly gateReportNodeIndices: Int32Array;
+
   // Feedback double buffers. Each out jack sourcing a feedback edge owns a
   // buffer pair (A/B). `flip` selects the front buffer (written this block):
   // A when 0, B when 1; the back buffer holds the previous block. At block
@@ -221,6 +226,17 @@ export class Interpreter {
     this.stepReportIds = stepIds;
     this.stepReportNodeIndices = Int32Array.from(stepIndices);
 
+    const gateIds: string[] = [];
+    const gateIndices: number[] = [];
+    dsps.forEach((dsp, i) => {
+      if (dsp.reportsGates) {
+        gateIds.push(nodes[i].instanceId);
+        gateIndices.push(i);
+      }
+    });
+    this.gateReportIds = gateIds;
+    this.gateReportNodeIndices = Int32Array.from(gateIndices);
+
     this.leftSources = [];
     this.rightSources = [];
     for (const nodeIndex of graph.outputNodes) {
@@ -324,6 +340,21 @@ export class Interpreter {
     const states = this.states;
     for (let k = 0; k < idx.length; k++) {
       out[k] = (states[idx[k]] as { step: number }).step;
+    }
+  }
+
+  /**
+   * Writes each gate-reporting node's current output bitmask into `out` (same
+   * order as `gateReportIds`) — bit k set while that node's outJacks[k] is
+   * high. Allocation-free UI telemetry for panel LEDs, exactly like
+   * readSteps: it reads the kernel state's `gates` field and has no effect on
+   * audio.
+   */
+  readGates(out: Int32Array): void {
+    const idx = this.gateReportNodeIndices;
+    const states = this.states;
+    for (let k = 0; k < idx.length; k++) {
+      out[k] = (states[idx[k]] as { gates: number }).gates;
     }
   }
 
