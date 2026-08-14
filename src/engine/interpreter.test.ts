@@ -68,8 +68,34 @@ const gateReporterKernel: Kernel<{ gates: number }> = {
   },
 };
 
+/**
+ * Reports a `controlFlags` bitmask that advances one block at a time, the
+ * control-channel twin of gateReporterKernel above. Outputs silence.
+ */
+const controlFlagReporterKernel: Kernel<{ controlFlags: number }> = {
+  init: () => ({ controlFlags: 0 }),
+  process(state, _ins, outs, _params, n) {
+    for (let c = 0; c < outs.length; c++) {
+      const out = outs[c];
+      for (let i = 0; i < n; i++) out[i] = 0;
+    }
+    state.controlFlags += 1;
+  },
+};
+
 const fixtureRegistry = new Map<string, ModuleDSP>([
   ...testRegistry,
+  [
+    "toy-control-flags",
+    {
+      slug: "toy-control-flags",
+      kernel: controlFlagReporterKernel,
+      inJacks: [],
+      outJacks: ["A"],
+      params: {},
+      reportsControlFlags: true,
+    },
+  ],
   [
     "toy-gates",
     {
@@ -775,5 +801,55 @@ describe("Interpreter — gate telemetry (readGates)", () => {
     const interp = new Interpreter(graphOf([{ id: "div", slug: "toy-gates" }]), fixtureRegistry, SR);
     expect(interp.stepReportIds).toEqual([]);
     expect(interp.gateReportIds).toEqual(["div"]);
+  });
+});
+
+
+describe("Interpreter — control-flag telemetry (readControlFlags)", () => {
+  it("exposes only reportsControlFlags nodes, in graph order", () => {
+    const interp = new Interpreter(
+      graphOf([
+        { id: "dc", slug: "toy-dc" },
+        { id: "fg-a", slug: "toy-control-flags" },
+        { id: "div", slug: "toy-gates" },
+        { id: "fg-b", slug: "toy-control-flags" },
+      ]),
+      fixtureRegistry,
+      SR,
+    );
+
+    expect(interp.controlFlagReportIds).toEqual(["fg-a", "fg-b"]);
+    // The three telemetry channels are independent: a gate reporter must not
+    // leak into the control channel, nor vice versa.
+    expect(interp.gateReportIds).toEqual(["div"]);
+    expect(interp.stepReportIds).toEqual([]);
+  });
+
+  it("is empty for a graph with no control-flag-reporting node", () => {
+    const interp = new Interpreter(graphOf([{ id: "dc", slug: "toy-dc" }]), fixtureRegistry, SR);
+    expect(interp.controlFlagReportIds).toEqual([]);
+  });
+
+  it("writes each node's live controlFlags bitmask into the caller's buffer", () => {
+    const interp = new Interpreter(
+      graphOf([
+        { id: "fg-a", slug: "toy-control-flags" },
+        { id: "fg-b", slug: "toy-control-flags" },
+      ]),
+      fixtureRegistry,
+      SR,
+    );
+
+    const out = new Int32Array(interp.controlFlagReportIds.length);
+    interp.readControlFlags(out);
+    expect([...out]).toEqual([0, 0]);
+
+    interp.runBlock(BLOCK_FRAMES);
+    interp.readControlFlags(out);
+    expect([...out]).toEqual([1, 1]);
+
+    interp.runBlock(BLOCK_FRAMES);
+    interp.readControlFlags(out);
+    expect([...out]).toEqual([2, 2]);
   });
 });

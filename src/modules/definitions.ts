@@ -17,6 +17,7 @@ export interface ModuleDefinition {
   audioOutput?: { channels: 1 | 2 };
   reportsStep?: boolean;
   reportsGates?: boolean;
+  reportsControlFlags?: boolean;
   limitations?: ModuleDSP["limitations"];
 }
 
@@ -30,6 +31,7 @@ function toDefinition(dsp: ModuleDSP): ModuleDefinition {
   if (dsp.audioOutput) definition.audioOutput = dsp.audioOutput;
   if (dsp.reportsStep) definition.reportsStep = dsp.reportsStep;
   if (dsp.reportsGates) definition.reportsGates = dsp.reportsGates;
+  if (dsp.reportsControlFlags) definition.reportsControlFlags = dsp.reportsControlFlags;
   if (dsp.limitations) definition.limitations = dsp.limitations;
   return definition;
 }

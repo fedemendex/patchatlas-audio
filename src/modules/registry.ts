@@ -71,6 +71,19 @@ export interface ModuleDSP {
   // the low 31 bits, so a module may report at most 31 outputs.
   reportsGates?: boolean;
 
+  // When true, the kernel's state carries a numeric `controlFlags` bitmask —
+  // bit k set while the k-th key of `params` is actively engaged, including
+  // when a CV input is doing the engaging rather than the stored knob/button
+  // value. Forwarded on the same throttled channel as `reportsStep`/
+  // `reportsGates` and likewise never affecting DSP.
+  //
+  // This is what lets a host light a control that is being driven from a jack
+  // (the function generator's Cycle button while its Cycle gate is high). It
+  // is an INDICATOR, not a value: the host must keep drawing the control's
+  // stored value as the control's value, and show this as an overlay. Limited
+  // to the low 31 bits, so a module may report at most 31 controls.
+  reportsControlFlags?: boolean;
+
   // Fidelity metadata for a deliberately partial module: names of jacks or
   // controls a host's panel shows but this engine does not render audibly, so
   // the host can badge them. Every currently registered module is complete
@@ -230,9 +243,19 @@ export const registry: Map<string, ModuleDSP> = new Map<string, ModuleDSP>([
       // follower input and transient floor, Rise CV/Fall CV/Both CV scale the
       // knob times at 1 oct/V (positive = slower). EOR/EOC are movement-derived
       // gates (low while rising / falling), so EOC → Trig self-patches into a
-      // cycle. Cycle (button, default off) self-cycles without a patch.
-      inJacks: ["Trig", "In", "Rise CV", "Fall CV", "Both CV"],
+      // cycle. Cycling is enabled by the Cycle button (default off) OR a high
+      // Cycle gate input; the jack is appended LAST so every pre-existing
+      // in-slot keeps its index (see the wire-protocol note at the top of this
+      // file), and unpatched it reads null, leaving the button alone in charge.
+      // The button and the jack share the name "Cycle" but live in separate
+      // namespaces (params vs inJacks) — as they do in the host's catalog,
+      // where module_controls and module_jacks are distinct tables.
+      inJacks: ["Trig", "In", "Rise CV", "Fall CV", "Both CV", "Cycle"],
       outJacks: ["Out", "EOR", "EOC", "Inv"],
+      // Reports the Cycle button as engaged whenever cycling is on, so a host
+      // can light it while the Cycle GATE is driving it and the stored button
+      // value is still off.
+      reportsControlFlags: true,
       params: {
         Rise: { min: 0.001, max: 10, default: 0.01, curve: "exponential" },
         Fall: { min: 0.001, max: 10, default: 0.3, curve: "exponential" },

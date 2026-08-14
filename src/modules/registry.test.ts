@@ -115,6 +115,30 @@ describe("production registry", () => {
     expect(registry.get("function-generator")?.kernel).toBe(functionGeneratorKernel);
   });
 
+  it("function-generator keeps its original in-slots and appends Cycle last", () => {
+    // Slot index IS the wire protocol: a saved patch's cable resolves to
+    // inJacks.indexOf(name), so moving any of the first five would rewire
+    // every function generator already saved in a host's database. The Cycle
+    // gate was added afterwards and must stay at the end.
+    expect(registry.get("function-generator")?.inJacks).toEqual([
+      "Trig",
+      "In",
+      "Rise CV",
+      "Fall CV",
+      "Both CV",
+      "Cycle",
+    ]);
+    expect(registry.get("function-generator")?.outJacks).toEqual(["Out", "EOR", "EOC", "Inv"]);
+    // Param slot order is equally contractual, and "Cycle" deliberately exists
+    // in BOTH namespaces: a button param and a gate jack.
+    expect(Object.keys(registry.get("function-generator")?.params ?? {})).toEqual([
+      "Rise",
+      "Fall",
+      "Curve",
+      "Cycle",
+    ]);
+  });
+
   it("lfo entry uses the canonical lfoKernel", () => {
     expect(registry.get("lfo")?.kernel).toBe(lfoKernel);
   });

@@ -66,6 +66,11 @@ export class Interpreter {
   readonly gateReportIds: string[];
   private readonly gateReportNodeIndices: Int32Array;
 
+  // Control-flag-reporting nodes (dsp.reportsControlFlags): same parallel-array
+  // shape again, driving indicator overlays on CV-driven controls. Also UI-only.
+  readonly controlFlagReportIds: string[];
+  private readonly controlFlagReportNodeIndices: Int32Array;
+
   // Feedback double buffers. Each out jack sourcing a feedback edge owns a
   // buffer pair (A/B). `flip` selects the front buffer (written this block):
   // A when 0, B when 1; the back buffer holds the previous block. At block
@@ -237,6 +242,17 @@ export class Interpreter {
     this.gateReportIds = gateIds;
     this.gateReportNodeIndices = Int32Array.from(gateIndices);
 
+    const controlFlagIds: string[] = [];
+    const controlFlagIndices: number[] = [];
+    dsps.forEach((dsp, i) => {
+      if (dsp.reportsControlFlags) {
+        controlFlagIds.push(nodes[i].instanceId);
+        controlFlagIndices.push(i);
+      }
+    });
+    this.controlFlagReportIds = controlFlagIds;
+    this.controlFlagReportNodeIndices = Int32Array.from(controlFlagIndices);
+
     this.leftSources = [];
     this.rightSources = [];
     for (const nodeIndex of graph.outputNodes) {
@@ -355,6 +371,21 @@ export class Interpreter {
     const states = this.states;
     for (let k = 0; k < idx.length; k++) {
       out[k] = (states[idx[k]] as { gates: number }).gates;
+    }
+  }
+
+  /**
+   * Writes each control-flag-reporting node's current control bitmask into
+   * `out` (same order as `controlFlagReportIds`) — bit k set while that node's
+   * k-th params key is engaged. Allocation-free UI telemetry for indicator
+   * overlays, exactly like readSteps/readGates: it reads the kernel state's
+   * `controlFlags` field and has no effect on audio.
+   */
+  readControlFlags(out: Int32Array): void {
+    const idx = this.controlFlagReportNodeIndices;
+    const states = this.states;
+    for (let k = 0; k < idx.length; k++) {
+      out[k] = (states[idx[k]] as { controlFlags: number }).controlFlags;
     }
   }
 

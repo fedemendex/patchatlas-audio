@@ -21,6 +21,20 @@
 //     the fall completes: Cycle on → immediately re-rise (self-cycling LFO
 //     between the In level and the peak); Cycle off → back to FOLLOW.
 //
+// Cycle is on when EITHER the Cycle button is on OR the Cycle gate input is
+// high — a latching panel switch OR'd with a voltage-controlled one, so a
+// patched gate adds cycling without taking the button away. The gate uses the
+// standard Schmitt levels (high ≥ GATE_FIRE_THRESHOLD_V, low <
+// GATE_REARM_THRESHOLD_V) as a LEVEL latch, not an edge detector: it is read
+// fresh every sample, so the decision at each fall completion reflects the
+// gate at that instant. An UNPATCHED Cycle jack forces the gate latch low, so
+// the module behaves exactly as it did before the jack existed — the button
+// alone decides. A non-finite gate sample holds the current latch state (no
+// spurious start/stop), matching the clock's Run input. Because the gate is
+// only consulted at the two stage boundaries (FOLLOW → RISE and the end of
+// FALL), a gate that goes low mid-cycle always lets the current cycle finish
+// and then rests at the follower target rather than cutting off.
+//
 // Curve (bipolar knob, −1..+1): g = CURVE_GAMMA_MAX^curve. 0 = linear ramps;
 // +1 = "expo" (rise slow-start/fast-end, fall fast-drop/slow-tail — the
 // classic analog exponential look); −1 = "log" (the mirror: RC-charge rise,
@@ -45,6 +59,7 @@
 //   ins[2] = Rise CV  — 1 oct/V rise-time scaling (positive = slower)
 //   ins[3] = Fall CV  — 1 oct/V fall-time scaling (positive = slower)
 //   ins[4] = Both CV  — added to both Rise CV and Fall CV
+//   ins[5] = Cycle    — gate: high cycles, low/unpatched leaves it to the button
 //   outs[0] = Out — the function, 0 → CV_UNIPOLAR_MAX from rest (follows In
 //                   outside transients, so it can sit at any input level)
 //   outs[1] = EOR — end-of-rise gate (low while rising)
@@ -63,6 +78,14 @@ import {
 
 // Segment design constants (local shaping, not signal-standard values;
 // Rise/Fall min/max/defaults match the registry ParamSpecs).
+//
+// TIME_MIN_S is also the bound that keeps a cycling generator sane: a "zero"
+// Rise/Fall (0, negative, or NaN) clamps to it, so a segment's per-sample
+// phase increment 1/(t·sr) is finite and a segment always spans at least one
+// sample. Stage advance is a straight-line `if` chain, never a loop, so one
+// sample performs at most two transitions (FOLLOW → RISE → FALL) and a render
+// block at most 2n — an unbounded transition count, a lockup or a NaN is
+// structurally impossible regardless of how the times or the Cycle gate move.
 const TIME_MIN_S = 0.001;
 const TIME_MAX_S = 10;
 const DEFAULT_RISE_S = 0.01;
@@ -70,6 +93,10 @@ const DEFAULT_FALL_S = 0.3;
 // Curve exponent at full knob: g spans 1/4 (log) → 4 (expo).
 const CURVE_GAMMA_MAX = 4;
 const CYCLE_ON_THRESHOLD = 0.5;
+// UI telemetry (reportsControlFlags): bit k of state.controlFlags marks the
+// k-th params key as live. Cycle is params[3], so it owns bit 3. Structural —
+// it tracks the registry's param declaration order, not a tuning value.
+const CYCLE_CONTROL_BIT = 1 << 3;
 
 // Stage constants (small ints, no enum object on the hot path).
 const FOLLOW = 0;
@@ -84,6 +111,10 @@ interface FunctionGeneratorState {
   phase: number; // transient segment phase in [0, 1)
   segStart: number; // level at the start of the current transient segment
   trigHigh: boolean; // Schmitt state of the Trig input
+  cycleGateHigh: boolean; // Schmitt state of the Cycle gate input
+  // UI-only indicator bitmask read by Interpreter.readControlFlags — never
+  // read back by this kernel and never affecting a sample.
+  controlFlags: number;
 }
 
 export const functionGeneratorKernel: Kernel<FunctionGeneratorState> = {
@@ -96,6 +127,8 @@ export const functionGeneratorKernel: Kernel<FunctionGeneratorState> = {
       phase: 0,
       segStart: 0,
       trigHigh: false,
+      cycleGateHigh: false,
+      controlFlags: 0,
     };
   },
 
@@ -105,6 +138,7 @@ export const functionGeneratorKernel: Kernel<FunctionGeneratorState> = {
     const inRiseCv = ins[2];
     const inFallCv = ins[3];
     const inBothCv = ins[4];
+    const inCycle = ins[5];
     const outOut = outs[0];
     const outEor = outs[1];
     const outEoc = outs[2];
@@ -124,8 +158,8 @@ export const functionGeneratorKernel: Kernel<FunctionGeneratorState> = {
     if (!Number.isFinite(curve)) curve = 0;
     else if (curve < -1) curve = -1;
     else if (curve > 1) curve = 1;
-    // NaN comparison is false, so a non-finite Cycle reads as off.
-    const cycle = params[3] >= CYCLE_ON_THRESHOLD;
+    // NaN comparison is false, so a non-finite Cycle button reads as off.
+    const cycleButton = params[3] >= CYCLE_ON_THRESHOLD;
 
     const g = Math.pow(CURVE_GAMMA_MAX, curve);
     const sr = state.sr;
@@ -136,6 +170,7 @@ export const functionGeneratorKernel: Kernel<FunctionGeneratorState> = {
     let phase = state.phase;
     let segStart = state.segStart;
     let trigHigh = state.trigHigh;
+    let cycleGateHigh = state.cycleGateHigh;
 
     for (let i = 0; i < n; i++) {
       // Schmitt-trigger the Trig input; non-finite samples read as 0 V (low).
@@ -152,6 +187,22 @@ export const functionGeneratorKernel: Kernel<FunctionGeneratorState> = {
       } else if (trigHigh && tv < GATE_REARM_THRESHOLD_V) {
         trigHigh = false;
       }
+
+      // Cycle gate latch: unpatched forces it low, so the Cycle button alone
+      // decides and the pre-jack behavior is reproduced exactly; patched uses
+      // Schmitt hysteresis, and a non-finite sample holds the current state
+      // (same convention as the clock's Run input). The button OR the gate
+      // enables cycling.
+      if (inCycle === null) {
+        cycleGateHigh = false;
+      } else {
+        const cv = inCycle[i];
+        if (Number.isFinite(cv)) {
+          if (cv >= GATE_FIRE_THRESHOLD_V) cycleGateHigh = true;
+          else if (cv < GATE_REARM_THRESHOLD_V) cycleGateHigh = false;
+        }
+      }
+      const cycle = cycleButton || cycleGateHigh;
 
       // Follower target / transient floor: the live In sample (0 V unpatched
       // or non-finite).
@@ -256,5 +307,12 @@ export const functionGeneratorKernel: Kernel<FunctionGeneratorState> = {
     state.phase = phase;
     state.segStart = segStart;
     state.trigHigh = trigHigh;
+    state.cycleGateHigh = cycleGateHigh;
+    // Indicator only: "Cycle is engaged", i.e. the button is on OR the gate is
+    // high as of the last sample of this block. Deliberately NOT "a cycle is
+    // still in flight" — when the gate drops mid-cycle the lamp goes out while
+    // the generator finishes its final slope, which is the honest reading of
+    // the control's state.
+    state.controlFlags = cycleButton || cycleGateHigh ? CYCLE_CONTROL_BIT : 0;
   },
 };

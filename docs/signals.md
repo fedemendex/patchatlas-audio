@@ -171,13 +171,34 @@ exponential knobs) that acts as a triggered envelope, a cycling LFO, and a slew 
 - **Time CV**: `Rise CV` and `Fall CV` each sum with `Both CV`; the summed volts scale the
   corresponding knob time exponentially at **one octave per volt, positive = slower** (Maths
   convention). Effective times clamp to the knob range; non-finite CV samples read as 0 V.
-- **Cycle** (button, default off): when on, the fall completion immediately re-fires the rise,
-  self-cycling between the `In` level and the peak (an LFO with period ≈ Rise + Fall).
+- **Cycle** (a button, default off, **and** a gate input jack): cycling is on when *either* the
+  button is on *or* the `Cycle` jack is high, so a patched gate adds voltage control without
+  taking the button away. When on, the fall completion immediately re-fires the rise —
+  self-cycling between the `In` level and the peak (an LFO with period ≈ Rise + Fall) — and a
+  cycle also self-starts from rest.
+  The jack is a **level** latch on the standard Schmitt thresholds (high ≥
+  `GATE_FIRE_THRESHOLD_V`, low < `GATE_REARM_THRESHOLD_V`), not an edge detector, and is read
+  every sample; it is only *consulted* at the two stage boundaries, which is what gives the
+  musically useful behavior — a gate that goes low mid-cycle lets the current cycle finish and
+  then rests at the follower target (0 V unpatched) instead of cutting off. An **unpatched**
+  `Cycle` jack holds the latch low, so the module behaves exactly as it did before the jack
+  existed; a non-finite sample holds the current latch state (the same convention as the
+  clock's `Run`). `Trig` is unaffected: an external trigger still fires a one-shot whatever the
+  gate is doing, and while the gate is high it simply restarts the cycling rise.
+  Patching a slow envelope into `Fall CV` while its comparator gate drives `Cycle` gives the
+  classic Maths "bouncing ball": accelerating bounces for as long as the gate holds.
 - **`EOR` / `EOC`** are movement-derived Maths-style gates: `EOR` is `GATE_HIGH_V` except
   while the output is moving up, `EOC` is `GATE_HIGH_V` except while it is moving down; both
   sit high at rest. Patching `EOC → Trig` therefore self-patches into a cycle exactly like the
   hardware trick (via the compiler's one-block feedback delay). `Inv` is the polarity-inverted
   function (the mixer/envelope `Inv` convention).
+  Driving another generator's `Cycle` from `EOR`/`EOC` works, but note that their **duty cycle is
+  the driver's Rise:Fall ratio**, since they are movement-derived: at the default Rise 0.01 /
+  Fall 0.3 the driver spends ~3% of each cycle rising, so `EOR` sits high ~97% of the time (the
+  slave never stops) and `EOC` ~3% (~10 ms — trigger-width, so the slave does exactly one cycle
+  per driver cycle). A roughly symmetric driver turns either output into a ~50% gate and makes
+  the slave burst on and off. The same arithmetic explains why a clock's `Clk` — a
+  `TRIGGER_SECONDS` (1 ms) pulse, not a gate — yields one cycle per tick.
 
 ## Ring modulator
 

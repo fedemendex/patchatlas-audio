@@ -44,4 +44,15 @@ export type EngineHostMessage =
       type: "gates";
       ids: string[];
       gates: Int32Array;
+    }
+  | {
+      /**
+       * Live control bitmask of every control-flag-reporting node
+       * (function-generator): bit k set while that node's k-th params key is
+       * engaged — including when a CV input, not the stored value, is what
+       * engages it. Drives panel indicator overlays, never the control's value.
+       */
+      type: "controlFlags";
+      ids: string[];
+      controlFlags: Int32Array;
     };

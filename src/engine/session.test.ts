@@ -53,6 +53,12 @@ function emitGates(node: MockAudioWorkletNode, ids: string[], gates: number[]): 
   } as unknown as MessageEvent);
 }
 
+function emitControlFlags(node: MockAudioWorkletNode, ids: string[], controlFlags: number[]): void {
+  node.port.onmessage!({
+    data: { type: "controlFlags", ids, controlFlags: Int32Array.from(controlFlags) },
+  } as unknown as MessageEvent);
+}
+
 describe("createEngine", () => {
   beforeEach(() => {
     MockAudioWorkletNode.instances = [];
@@ -314,5 +320,64 @@ describe("createEngine", () => {
     expect(attempts).toBe(2);
     expect(MockAudioWorkletNode.instances).toHaveLength(1);
     expect(engine.output).toBeDefined();
+  });
+});
+
+
+describe("createEngine — control-flag telemetry", () => {
+  beforeEach(() => {
+    MockAudioWorkletNode.instances = [];
+    vi.stubGlobal("AudioWorkletNode", MockAudioWorkletNode);
+  });
+
+  it("fans control-flag telemetry out to every subscriber and supports unsubscribe", async () => {
+    const ctx = new MockAudioContext();
+    const engine = await createEngine(ctx as unknown as AudioContext);
+    const node = MockAudioWorkletNode.instances[0];
+
+    const a = vi.fn();
+    const b = vi.fn();
+    engine.onControlFlags(a);
+    const unsubB = engine.onControlFlags(b);
+
+    emitControlFlags(node, ["fg"], [0b1000]);
+    expect(a).toHaveBeenCalledWith({ fg: 0b1000 });
+    expect(b).toHaveBeenCalledWith({ fg: 0b1000 });
+
+    unsubB();
+    emitControlFlags(node, ["fg"], [0]);
+    expect(a).toHaveBeenCalledTimes(2);
+    expect(b).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the three channels' subscribers separate", async () => {
+    const ctx = new MockAudioContext();
+    const engine = await createEngine(ctx as unknown as AudioContext);
+    const node = MockAudioWorkletNode.instances[0];
+
+    const gates = vi.fn();
+    const controlFlags = vi.fn();
+    engine.onGates(gates);
+    engine.onControlFlags(controlFlags);
+
+    emitControlFlags(node, ["fg"], [0b1000]);
+    expect(controlFlags).toHaveBeenCalledTimes(1);
+    expect(gates).not.toHaveBeenCalled();
+
+    emitGates(node, ["div"], [0b11]);
+    expect(gates).toHaveBeenCalledTimes(1);
+    expect(controlFlags).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops delivering after dispose", async () => {
+    const ctx = new MockAudioContext();
+    const engine = await createEngine(ctx as unknown as AudioContext);
+    const node = MockAudioWorkletNode.instances[0];
+    const cb = vi.fn();
+    engine.onControlFlags(cb);
+
+    engine.dispose();
+    expect(node.port.onmessage).toBeNull();
+    expect(cb).not.toHaveBeenCalled();
   });
 });

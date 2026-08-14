@@ -33,18 +33,18 @@ declare function registerProcessor(
 /** Fade-out/fade-in length for graph swaps. Host plumbing, not signal tuning. */
 const GRAPH_FADE_SECONDS = 0.03;
 
-/** How often the worklet reports UI telemetry (steps, gates) to the host (~33 Hz). */
+/** How often the worklet reports UI telemetry (steps, gates, control flags) to the host (~33 Hz). */
 const TELEMETRY_REPORT_SECONDS = 0.03;
 
 /**
  * Per-interpreter telemetry scratch, one per channel: reused buffers, no
  * per-block alloc. `last` starts at -1, which is not a valid step index nor a
- * valid gate bitmask, so the first read of either channel always counts as a
- * change and posts an initial value.
+ * valid gate/control bitmask, so the first read of any channel always counts
+ * as a change and posts an initial value.
  */
 interface TelemetryConfig {
   ids: string[];
-  buf: Int32Array; // current values, filled by readSteps/readGates
+  buf: Int32Array; // current values, filled by readSteps/readGates/readControlFlags
   last: Int32Array; // last posted values, for change detection
 }
 
@@ -81,10 +81,13 @@ class EngineProcessor extends AudioWorkletProcessor {
   private pendingSteps: TelemetryConfig | null = null;
   private currentGates: TelemetryConfig | null = null;
   private pendingGates: TelemetryConfig | null = null;
+  private currentControlFlags: TelemetryConfig | null = null;
+  private pendingControlFlags: TelemetryConfig | null = null;
   private telemetryPostSamples = 0;
   private readonly telemetryPostInterval: number;
   private readonly stepMsg: EngineHostMessage;
   private readonly gateMsg: EngineHostMessage;
+  private readonly controlFlagMsg: EngineHostMessage;
 
   constructor() {
     super();
@@ -94,6 +97,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.telemetryPostInterval = Math.max(1, Math.round(sampleRate * TELEMETRY_REPORT_SECONDS));
     this.stepMsg = { type: "steps", ids: [], steps: new Int32Array(0) };
     this.gateMsg = { type: "gates", ids: [], gates: new Int32Array(0) };
+    this.controlFlagMsg = { type: "controlFlags", ids: [], controlFlags: new Int32Array(0) };
     this.port.onmessage = (e: MessageEvent<EngineWorkletMessage>) => {
       const msg = e.data;
       if (msg.type === "graph") {
@@ -107,6 +111,8 @@ class EngineProcessor extends AudioWorkletProcessor {
         this.pendingSteps = null;
         this.currentGates = null;
         this.pendingGates = null;
+        this.currentControlFlags = null;
+        this.pendingControlFlags = null;
         this.gain = 0;
       } else if (msg.type === "param") {
         // Route to both: `current` keeps sounding right until the swap, and a
@@ -132,12 +138,14 @@ class EngineProcessor extends AudioWorkletProcessor {
       this.current = interpreter;
       this.currentSteps = makeTelemetryConfig(interpreter.stepReportIds);
       this.currentGates = makeTelemetryConfig(interpreter.gateReportIds);
+      this.currentControlFlags = makeTelemetryConfig(interpreter.controlFlagReportIds);
       this.telemetryPostSamples = 0;
       this.gain = 0; // fade in from silence
     } else {
       this.pending = interpreter; // fade out, then swap in process()
       this.pendingSteps = makeTelemetryConfig(interpreter.stepReportIds);
       this.pendingGates = makeTelemetryConfig(interpreter.gateReportIds);
+      this.pendingControlFlags = makeTelemetryConfig(interpreter.controlFlagReportIds);
     }
   }
 
@@ -204,6 +212,8 @@ class EngineProcessor extends AudioWorkletProcessor {
       this.pendingSteps = null;
       this.currentGates = this.pendingGates;
       this.pendingGates = null;
+      this.currentControlFlags = this.pendingControlFlags;
+      this.pendingControlFlags = null;
       this.telemetryPostSamples = 0;
     }
 
@@ -215,8 +225,9 @@ class EngineProcessor extends AudioWorkletProcessor {
     // a sequencer and a divider posts them on the same tick.
     const stepCfg = this.currentSteps;
     const gateCfg = this.currentGates;
+    const controlFlagCfg = this.currentControlFlags;
     const interp = this.current;
-    if (interp !== null && (stepCfg !== null || gateCfg !== null)) {
+    if (interp !== null && (stepCfg !== null || gateCfg !== null || controlFlagCfg !== null)) {
       this.telemetryPostSamples += n;
       if (this.telemetryPostSamples >= this.telemetryPostInterval) {
         this.telemetryPostSamples = 0;
@@ -234,6 +245,14 @@ class EngineProcessor extends AudioWorkletProcessor {
             this.gateMsg.ids = gateCfg.ids;
             (this.gateMsg as { gates: Int32Array }).gates = gateCfg.buf;
             this.postTelemetry(this.gateMsg);
+          }
+        }
+        if (controlFlagCfg !== null) {
+          interp.readControlFlags(controlFlagCfg.buf);
+          if (telemetryChanged(controlFlagCfg)) {
+            this.controlFlagMsg.ids = controlFlagCfg.ids;
+            (this.controlFlagMsg as { controlFlags: Int32Array }).controlFlags = controlFlagCfg.buf;
+            this.postTelemetry(this.controlFlagMsg);
           }
         }
       }

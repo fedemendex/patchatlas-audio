@@ -53,6 +53,18 @@ export interface Engine {
    * indicator path only.
    */
   onGates(cb: (gates: Record<string, number>) => void): () => void;
+  /**
+   * Subscribes to per-control telemetry from control-flag-reporting modules
+   * (currently `function-generator`), for driving indicator overlays on a
+   * control that a CV input is engaging. Each value is a bitmask over that
+   * module's `params` KEY ORDER: bit k is set while the k-th control is
+   * engaged. Same ~33 Hz throttle and post-on-change as `onGates`.
+   *
+   * This reports what the ENGINE is doing, never what the control is set to —
+   * a host must keep rendering the stored control value as the value and draw
+   * this as an overlay on top, or the two will contradict each other.
+   */
+  onControlFlags(cb: (controlFlags: Record<string, number>) => void): () => void;
   dispose(): void;
 }
 
@@ -86,6 +98,7 @@ export async function createEngine(
   const node = new AudioWorkletNode(context, "engine-processor");
   const stepSubscribers = new Set<(steps: Record<string, number>) => void>();
   const gateSubscribers = new Set<(gates: Record<string, number>) => void>();
+  const controlFlagSubscribers = new Set<(controlFlags: Record<string, number>) => void>();
   let lastGraph: EngineGraph | null = null;
   let started = false;
   let disposed = false;
@@ -102,6 +115,11 @@ export async function createEngine(
       const gates: Record<string, number> = {};
       for (let i = 0; i < msg.ids.length; i++) gates[msg.ids[i]] = msg.gates[i];
       for (const cb of gateSubscribers) cb(gates);
+    } else if (msg?.type === "controlFlags") {
+      if (!msg.ids || !msg.controlFlags) return;
+      const controlFlags: Record<string, number> = {};
+      for (let i = 0; i < msg.ids.length; i++) controlFlags[msg.ids[i]] = msg.controlFlags[i];
+      for (const cb of controlFlagSubscribers) cb(controlFlags);
     }
   };
 
@@ -166,12 +184,19 @@ export async function createEngine(
       return () => gateSubscribers.delete(cb);
     },
 
+    onControlFlags(cb: (controlFlags: Record<string, number>) => void): () => void {
+      assertNotDisposed();
+      controlFlagSubscribers.add(cb);
+      return () => controlFlagSubscribers.delete(cb);
+    },
+
     dispose(): void {
       if (disposed) return;
       disposed = true;
       node.port.onmessage = null;
       stepSubscribers.clear();
       gateSubscribers.clear();
+      controlFlagSubscribers.clear();
       node.disconnect();
     },
   };
